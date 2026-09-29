@@ -7,12 +7,15 @@
  * "sample menu" notice, and staff can remove it in one click from
  * Dashboard → Menu → "Supprimer le menu d'exemple".
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import type { MenuItemInput } from '../../shared/schemas';
 import { menuItemInputSchema } from '../../shared/schemas';
 import type { DB } from '../db';
 import { createCategory, createItem, markCategoryDemo } from '../repos/menu';
-import { setFlag } from '../repos/settings';
+import { setFlag, touchMenu } from '../repos/settings';
 import { createTable, listTables } from '../repos/tables';
+import { processMenuImage } from '../services/images';
 
 type DemoItem = Omit<MenuItemInput, 'categoryId'>;
 type DemoCategory = { name: string; nameEn: string; items: DemoItem[] };
@@ -278,6 +281,40 @@ export function seedDemoMenu(db: DB, now = new Date()): void {
 }
 
 /** Twelve sample tables so the QR and table-number flows can be tried. */
+/** "Poisson grillé du jour" → "poisson-grille-du-jour" (file name of its sample photo). */
+export const dishPhotoName = (name: string) =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+/**
+ * Sample dish photos: content/photos/menu/<dish-name>.jpg (see dishPhotoName) is attached to the
+ * matching sample dish that has no photo yet, through the same pipeline as dashboard uploads.
+ */
+export async function attachDemoPhotos(db: DB, uploadsDir: string, dir = path.resolve('content/photos/menu')): Promise<number> {
+  if (!fs.existsSync(dir)) return 0;
+  const files = new Map(
+    fs
+      .readdirSync(dir)
+      .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+      .map((f) => [f.replace(/\.[^.]+$/, ''), path.join(dir, f)] as const),
+  );
+  const dishes = db.prepare('SELECT id, name FROM menu_items WHERE is_demo = 1 AND image IS NULL').all() as { id: number; name: string }[];
+  let attached = 0;
+  for (const dish of dishes) {
+    const file = files.get(dishPhotoName(dish.name));
+    if (!file) continue;
+    const image = await processMenuImage(fs.readFileSync(file), uploadsDir);
+    db.prepare('UPDATE menu_items SET image = ? WHERE id = ?').run(image, dish.id);
+    attached++;
+  }
+  if (attached > 0) touchMenu(db); // new ETag, so browsers fetch the menu with its photos
+  return attached;
+}
+
 export function seedDemoTables(db: DB, now = new Date()): void {
   if (listTables(db).length > 0) return;
   for (let n = 1; n <= 12; n++) {

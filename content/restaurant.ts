@@ -139,17 +139,18 @@ export const restaurant = {
   /**
    * Default weekly opening hours, used ONLY to initialise the database the
    * first time. Afterwards, hours are edited in the staff dashboard.
-   * Source: Tripadvisor photo caption "ouvre ses portes de Midi à 23H! Fermé
-   * tous les Vendredi" — other listings say noon to midnight. TO CONFIRM.
+   * Source: B&B Park's own Instagram bio (via search results): noon to
+   * midnight, closed on Fridays. An older Tripadvisor caption said "de Midi à
+   * 23H". TO CONFIRM.
    */
   defaultHours: {
-    1: [{ opens: '12:00', closes: '23:00' }],
-    2: [{ opens: '12:00', closes: '23:00' }],
-    3: [{ opens: '12:00', closes: '23:00' }],
-    4: [{ opens: '12:00', closes: '23:00' }],
+    1: [{ opens: '12:00', closes: '00:00' }],
+    2: [{ opens: '12:00', closes: '00:00' }],
+    3: [{ opens: '12:00', closes: '00:00' }],
+    4: [{ opens: '12:00', closes: '00:00' }],
     5: [], // Friday — closed
-    6: [{ opens: '12:00', closes: '23:00' }],
-    7: [{ opens: '12:00', closes: '23:00' }],
+    6: [{ opens: '12:00', closes: '00:00' }],
+    7: [{ opens: '12:00', closes: '00:00' }],
   } as Record<Weekday, TimeRange[]>,
 
   /** Shown on the dine-in ordering screen. Online payment is not enabled. */

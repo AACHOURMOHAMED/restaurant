@@ -5,6 +5,7 @@
  *   npm run create-admin                Create an administrator (interactive)
  *   npm run cli -- create-admin --email a@b.c --name "Nom" [--password …]
  *   npm run cli -- reset-password --email a@b.c
+ *   npm run cli -- demo-photos         Attach sample dish photos (content/photos/menu/) to the sample menu
  *   npm run cli -- remove-demo-menu
  *   npm run cli -- purge --days 180     Erase personal data of reservations older than N days
  *   npm run cli -- backup [--out file]  Consistent copy of the database (safe while the site runs)
@@ -23,7 +24,8 @@ import { deleteDemoMenu } from './repos/menu';
 import { getFlag } from './repos/settings';
 import { createUser, updateUser } from './services/auth';
 import { anonymizeOldReservations } from './services/reservations';
-import { seedDemoMenu, seedDemoTables } from './seed/demo';
+import { attachDemoPhotos, seedDemoMenu, seedDemoTables } from './seed/demo';
+import { deleteMenuImage } from './services/images';
 
 const VALUE_FLAGS = new Set(['email', 'name', 'password', 'days', 'out']);
 
@@ -81,6 +83,8 @@ async function main() {
       if (getFlag(db, 'demo_menu')) console.log('Sample menu already loaded — skipping menu.');
       else seedDemoMenu(db, now);
       seedDemoTables(db, now);
+      const photos = await attachDemoPhotos(db, config.uploadsDir);
+      if (photos > 0) console.log(`Sample dish photos attached: ${photos}`);
       console.log('Sample menu and tables loaded. Remove the sample menu later from the dashboard.');
       break;
     }
@@ -102,8 +106,12 @@ async function main() {
       console.log('Password updated; existing sessions were signed out.');
       break;
     }
+    case 'demo-photos': {
+      console.log(`Sample dish photos attached: ${await attachDemoPhotos(db, config.uploadsDir)}`);
+      break;
+    }
     case 'remove-demo-menu': {
-      deleteDemoMenu(db);
+      await Promise.all(deleteDemoMenu(db).map((image) => deleteMenuImage(image, config.uploadsDir)));
       console.log('Sample menu removed.');
       break;
     }
@@ -124,7 +132,7 @@ async function main() {
       break;
     }
     default:
-      console.log('Commands: seed [--demo] | create-admin | reset-password | remove-demo-menu | purge --days N | backup [--out file]');
+      console.log('Commands: seed [--demo] | create-admin | reset-password | demo-photos | remove-demo-menu | purge --days N | backup [--out file]');
       process.exitCode = command ? 1 : 0;
   }
   db.close();

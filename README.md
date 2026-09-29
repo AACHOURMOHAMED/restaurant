@@ -56,7 +56,7 @@ All of these live in **one file**, [`content/restaurant.ts`](content/restaurant.
 | # | Detail | What the preview uses | Source |
 | --- | --- | --- | --- |
 | 1 | **Menu, prices, dish photos** | A **sample menu** (5 categories, 19 dishes) labelled "Menu d'exemple" on the site | none — *replace in dashboard → Carte*, then **Supprimer le menu d'exemple** |
-| 2 | **Opening hours** | 12:00–23:00, **closed on Fridays** | Tripadvisor photo caption ("de Midi à 23H ! Fermé tous les Vendredi"); other listings say until midnight — *dashboard → Réglages → Horaires d'ouverture* |
+| 2 | **Opening hours** | 12:00–00:00 (midnight), **closed on Fridays** | B&B Park's Instagram bio ("noon to midnight, closed Fridays"); an older Tripadvisor caption said 23:00 — *dashboard → Réglages → Horaires d'ouverture* |
 | 3 | **Logo** | Typographic "B&B PARK" wordmark | none — add the file under `public/brand/` and set `logo` |
 | 4 | **Photos** (hero, story, gallery, link preview) | Elegant illustrated placeholders — never stock photos | none — see [Photos](#photos) |
 | 5 | Phone | 05 37 37 06 24 (`+212537370624`) | B&B Park Facebook posts |

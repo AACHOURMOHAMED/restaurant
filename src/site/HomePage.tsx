@@ -5,6 +5,7 @@ import { useMenu } from '@/lib/queries';
 import { useDocumentTitle } from '@/lib/useDocumentTitle';
 import { AtTable } from './sections/AtTable';
 import { Gallery } from './sections/Gallery';
+import { Atelier } from './sections/Atelier';
 import { Hero } from './sections/Hero';
 import { MenuSection } from './sections/MenuSection';
 import { Specials } from './sections/Specials';
@@ -30,6 +31,7 @@ export function HomePage() {
       <Hero />
       <Story />
       <Specials />
+      <Atelier />
       <MenuSection />
       <AtTable />
       <Gallery />

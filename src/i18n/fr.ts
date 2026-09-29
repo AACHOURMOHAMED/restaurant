@@ -58,6 +58,21 @@ export const fr = {
     cta: 'Voir toute la carte',
   },
 
+  atelier: {
+    eyebrow: 'L’atelier',
+    title: 'Une pizza, étape par étape',
+    progress: 'Progression de la recette',
+    steps: [
+      { title: 'La pâte', text: 'Une base souple, étirée jusqu’au bord.' },
+      { title: 'La sauce', text: 'Tomate, ail et huile d’olive, étalés en spirale.' },
+      { title: 'La mozzarella', text: 'Généreuse, pour des bords qui filent.' },
+      { title: 'Les fruits de mer', text: 'Crevettes, calamars, olives et basilic : la mer s’invite sur la pizza.' },
+      { title: 'Le four', text: 'Quelques minutes de chaleur, une croûte dorée.' },
+      { title: 'Prête à partir', text: 'Sur place, à emporter ou en livraison — encore chaude.' },
+    ],
+    cta: 'Voir la carte',
+  },
+
   menu: {
     eyebrow: 'La carte',
     title: 'Notre carte',

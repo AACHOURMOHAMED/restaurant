@@ -58,6 +58,21 @@ export const en: Dictionary = {
     cta: 'See the full menu',
   },
 
+  atelier: {
+    eyebrow: 'The workshop',
+    title: 'A pizza, step by step',
+    progress: 'Recipe progress',
+    steps: [
+      { title: 'The dough', text: 'A soft base, stretched out to the edge.' },
+      { title: 'The sauce', text: 'Tomato, garlic and olive oil, spread in a spiral.' },
+      { title: 'The mozzarella', text: 'Generous, for edges that melt and stretch.' },
+      { title: 'Seafood', text: 'Prawns, squid, olives and basil: the sea comes to the pizza.' },
+      { title: 'The oven', text: 'A few minutes of heat, a golden crust.' },
+      { title: 'Ready to go', text: 'Dine in, take away or delivered — still warm.' },
+    ],
+    cta: 'See the menu',
+  },
+
   menu: {
     eyebrow: 'The menu',
     title: 'Our menu',

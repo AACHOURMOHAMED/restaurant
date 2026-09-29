@@ -323,7 +323,8 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post('/api/staff/menu/demo/remove', admin, async () => {
-    menu.deleteDemoMenu(db);
+    const images = menu.deleteDemoMenu(db);
+    await Promise.all(images.map((image) => deleteMenuImage(image, config.uploadsDir)));
     menuChanged();
     return { ok: true };
   });

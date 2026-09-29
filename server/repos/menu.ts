@@ -391,9 +391,12 @@ export function imageInUse(db: DB, image: string): boolean {
   return !!db.prepare('SELECT 1 FROM menu_items WHERE image = ? LIMIT 1').get(image);
 }
 
-/** Removes every dish/category that came from the sample (demo) menu. */
-export function deleteDemoMenu(db: DB): void {
-  db.transaction(() => {
+/** Removes every dish/category that came from the sample (demo) menu; returns their photo keys. */
+export function deleteDemoMenu(db: DB): string[] {
+  return db.transaction(() => {
+    const images = (db.prepare('SELECT image FROM menu_items WHERE is_demo = 1 AND image IS NOT NULL').all() as { image: string }[]).map(
+      (r) => r.image,
+    );
     db.prepare('DELETE FROM menu_items WHERE is_demo = 1').run();
     db.prepare(
       'DELETE FROM menu_categories WHERE is_demo = 1 AND NOT EXISTS (SELECT 1 FROM menu_items WHERE category_id = menu_categories.id)',
@@ -401,6 +404,7 @@ export function deleteDemoMenu(db: DB): void {
     db.prepare('UPDATE menu_categories SET is_demo = 0').run();
     setFlag(db, 'demo_menu', false);
     touchMenu(db);
+    return images.filter((image) => !imageInUse(db, image));
   })();
 }
 

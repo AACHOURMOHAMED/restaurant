@@ -9,7 +9,7 @@ test.describe('Public website on a phone', () => {
     await expect(page.getByRole('link', { name: 'Réserver une table' }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.getByRole('button', { name: 'Voir la carte' }).click();
+    await page.getByRole('region', { name: 'B&B Park' }).getByRole('button', { name: 'Voir la carte' }).click(); // the hero's
     await expect(page.getByRole('heading', { name: 'Notre carte' })).toBeInViewport();
     await expect(page.getByText('Menu d’exemple pour la démonstration').first()).toBeVisible();
 
