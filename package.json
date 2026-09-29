@@ -5,7 +5,7 @@
   "description": "B&B Park (Kénitra) — restaurant website with table reservations, QR dine-in ordering and a staff dashboard.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "scripts": {
     "predev": "tsx scripts/optimize-photos.ts",
@@ -13,7 +13,7 @@
     "dev:api": "tsx watch --clear-screen=false server/index.ts",
     "dev:web": "vite",
     "build": "npm run photos && vite build && node scripts/precompress.mjs && node scripts/build-server.mjs",
-    "start": "node dist/server/index.js",
+    "start": "node --env-file-if-exists=.env dist/server/index.js",
     "photos": "tsx scripts/optimize-photos.ts",
     "cli": "tsx server/cli.ts",
     "seed:demo": "tsx server/cli.ts seed --demo",

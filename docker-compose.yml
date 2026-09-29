@@ -1,0 +1,20 @@
+# Production setup: `cp .env.example .env`, edit it, then `docker compose up -d --build`.
+# Put an HTTPS reverse proxy (Caddy, nginx, Traefik…) in front of port 3000 —
+# see README "Deploying".
+services:
+  restaurant:
+    build: .
+    image: bbpark-restaurant
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:3000:3000" # reachable only through the reverse proxy on this machine
+    volumes:
+      - restaurant-data:/app/data
+
+volumes:
+  # Database, uploaded dish photos and backups. Back it up (README "Backups").
+  restaurant-data:

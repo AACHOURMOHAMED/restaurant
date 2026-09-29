@@ -7,9 +7,12 @@
  *   npm run cli -- reset-password --email a@b.c
  *   npm run cli -- remove-demo-menu
  *   npm run cli -- purge --days 180     Erase personal data of reservations older than N days
+ *   npm run cli -- backup [--out file]  Consistent copy of the database (safe while the site runs)
  *
  * In production (after `npm run build`) use `node dist/server/cli.js <command>`.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline';
 import { Writable } from 'node:stream';
 import { passwordSchema, staffUserCreateSchema } from '../shared/schemas';
@@ -22,7 +25,7 @@ import { createUser, updateUser } from './services/auth';
 import { anonymizeOldReservations } from './services/reservations';
 import { seedDemoMenu, seedDemoTables } from './seed/demo';
 
-const VALUE_FLAGS = new Set(['email', 'name', 'password', 'days']);
+const VALUE_FLAGS = new Set(['email', 'name', 'password', 'days', 'out']);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -111,8 +114,17 @@ async function main() {
       console.log(`Erased personal data from ${anonymizeOldReservations(ctx, days)} reservation(s).`);
       break;
     }
+    case 'backup': {
+      const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+      const out = path.resolve(arg('out') ?? path.join(config.dataDir, 'backups', `restaurant-${stamp}.db`));
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      await db.backup(out);
+      console.log(`Database copied to ${out}`);
+      console.log(`Dish photos are in ${config.uploadsDir} — back that folder up too.`);
+      break;
+    }
     default:
-      console.log('Commands: seed [--demo] | create-admin | reset-password | remove-demo-menu | purge --days N');
+      console.log('Commands: seed [--demo] | create-admin | reset-password | remove-demo-menu | purge --days N | backup [--out file]');
       process.exitCode = command ? 1 : 0;
   }
   db.close();
