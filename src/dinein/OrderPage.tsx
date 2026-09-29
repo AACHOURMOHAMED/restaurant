@@ -2,7 +2,7 @@ import type { OrderCreated } from '@shared/api-types';
 import { LIMITS } from '@shared/constants';
 import { defaultSelection } from '@shared/pricing';
 import { useMutation } from '@tanstack/react-query';
-import { ChevronRight, Minus, Plus, Receipt, ShoppingBag, Trash2 } from 'lucide-react';
+import { ChevronRight, Minus, Plus, ReceiptText, ShoppingBag, Trash2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { restaurant } from '@content/restaurant';
@@ -138,7 +138,7 @@ export default function OrderPage() {
         <h1 className="font-display text-[2.6rem] leading-none font-medium">{t.order.title}</h1>
         {myOrders.length > 0 && (
           <Link to={`/order/${myOrders[0]!.token}`} className="inline-flex items-center gap-1.5 pb-1 text-sm font-semibold text-ink-700">
-            <Receipt className="size-4" aria-hidden />
+            <ReceiptText className="size-4" aria-hidden />
             {t.order.myOrders}
             <ChevronRight className="size-4" aria-hidden />
           </Link>

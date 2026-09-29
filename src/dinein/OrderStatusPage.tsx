@@ -2,7 +2,7 @@ import { restaurant } from '@content/restaurant';
 import type { OrderPublic } from '@shared/api-types';
 import type { OrderStatus } from '@shared/constants';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChefHat, CircleCheck, Receipt, UtensilsCrossed, XCircle } from 'lucide-react';
+import { Check, ChefHat, CircleCheck, ReceiptText, UtensilsCrossed, XCircle } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router';
 import { ButtonLink, cn, Notice, Spinner } from '@/components/ui';
 import { useI18n } from '@/i18n';
@@ -13,7 +13,7 @@ import { myOrdersStore } from '@/lib/stores';
 import { useDocumentTitle } from '@/lib/useDocumentTitle';
 
 const STEPS: Exclude<OrderStatus, 'cancelled'>[] = ['received', 'preparing', 'ready', 'served'];
-const STEP_ICONS = { received: Receipt, preparing: ChefHat, ready: UtensilsCrossed, served: CircleCheck };
+const STEP_ICONS = { received: ReceiptText, preparing: ChefHat, ready: UtensilsCrossed, served: CircleCheck };
 
 export default function OrderStatusPage() {
   const { token = '' } = useParams();
