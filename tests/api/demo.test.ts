@@ -29,10 +29,10 @@ describe('sample menu photos', () => {
   });
 
   it('attaches photos to the sample dishes and removes them with the sample menu', async () => {
-    seedDemoMenu(t.ctx.db);
+    await seedDemoMenu(t.ctx.db);
     await photo('Soupe de poisson');
-    expect(await attachDemoPhotos(t.ctx.db, t.ctx.config.uploadsDir, photos)).toBe(1);
-    expect(await attachDemoPhotos(t.ctx.db, t.ctx.config.uploadsDir, photos)).toBe(0); // already has one
+    expect(await attachDemoPhotos(t.ctx.db, t.ctx.media!, photos)).toBe(1);
+    expect(await attachDemoPhotos(t.ctx.db, t.ctx.media!, photos)).toBe(0); // already has one
 
     const menu = (await t.app.inject('/api/public/menu')).json();
     const soup = menu.categories.flatMap((c: { items: { name: string; image: string | null }[] }) => c.items).find((i: { name: string }) => i.name === 'Soupe de poisson');

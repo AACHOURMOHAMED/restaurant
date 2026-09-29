@@ -15,11 +15,12 @@ const dir = path.resolve('tests/.tmp/e2e');
 fs.rmSync(dir, { recursive: true, force: true });
 fs.mkdirSync(dir, { recursive: true });
 
-const db = openDatabase(path.join(dir, 'restaurant.db'));
-seedDemoMenu(db);
-seedDemoTables(db);
-setOrderingSettings(db, { enabled: true, onlyDuringOpeningHours: false });
-db.close();
+// Same folder the server uses (DATA_DIR/pgdata); closed again before the server starts.
+const db = await openDatabase({ dir: path.join(dir, 'pgdata') });
+await seedDemoMenu(db);
+await seedDemoTables(db);
+await setOrderingSettings(db, { enabled: true, onlyDuringOpeningHours: false });
+await db.close();
 
 if (process.env.E2E_SKIP_BUILD !== '1') execSync('npx vite build', { stdio: 'inherit' });
 

@@ -3,14 +3,13 @@
  * "Restaurant" structured data (address, phone, opening hours…).
  * Pure function: used by the server at runtime and by Vite at build time.
  */
-import { restaurant } from '../content/restaurant';
-import type { WeeklyHours } from '../shared/availability';
-import type { Lang } from '../shared/constants';
+import { restaurant } from '../content/restaurant.js';
+import type { WeeklyHours } from '../shared/availability.js';
+import type { Lang } from '../shared/constants.js';
+import { openingHoursSpecification } from '../shared/opening-hours.js';
 
 export const HEAD_START = '<!--head:start-->';
 export const HEAD_END = '<!--head:end-->';
-
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -21,15 +20,6 @@ export function renderHead(opts: { lang: Lang; publicUrl: string | null; hours: 
   const title = restaurant.seo.title[lang];
   const description = restaurant.seo.description[lang];
   const a = restaurant.address;
-
-  const openingHoursSpecification = Object.entries(opts.hours).flatMap(([day, ranges]) =>
-    ranges.map((r) => ({
-      '@type': 'OpeningHoursSpecification',
-      dayOfWeek: `https://schema.org/${DAY_NAMES[Number(day) - 1]}`,
-      opens: r.opens,
-      closes: r.closes === '24:00' ? '23:59' : r.closes,
-    })),
-  );
 
   const sameAs = [restaurant.website, ...Object.values(restaurant.social)].filter(Boolean);
   const jsonLd: Record<string, unknown> = {
@@ -50,7 +40,7 @@ export function renderHead(opts: { lang: Lang; publicUrl: string | null; hours: 
     servesCuisine: ['Seafood', 'Moroccan', 'International'],
     foundingDate: String(restaurant.since),
     currenciesAccepted: restaurant.currency.code,
-    openingHoursSpecification,
+    openingHoursSpecification: openingHoursSpecification(opts.hours),
     sameAs,
     ...(opts.shareImage && base ? { image: `${base}${opts.shareImage}` } : {}),
   };

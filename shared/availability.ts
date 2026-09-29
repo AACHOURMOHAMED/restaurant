@@ -7,7 +7,7 @@ import {
   zonedNow,
   type IsoWeekday,
   type LocalDate,
-} from './time';
+} from './time.js';
 
 export type TimeRange = { opens: string; closes: string };
 export type WeeklyHours = Record<IsoWeekday, TimeRange[]>;

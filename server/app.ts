@@ -9,15 +9,16 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
-import { restaurant } from '../content/restaurant';
-import type { ApiErrorBody } from '../shared/api-types';
-import { issuesToFields } from '../shared/schemas';
-import type { AppContext } from './context';
-import { AppError } from './errors';
-import { getWeeklyHours } from './repos/settings';
-import { publicRoutes } from './routes/public';
-import { staffRoutes } from './routes/staff';
-import { injectHead, renderHead } from './seo';
+import type { ApiErrorBody } from '../shared/api-types.js';
+import { issuesToFields } from '../shared/schemas.js';
+import type { AppContext } from './context.js';
+import { AppError } from './errors.js';
+import { cspDirectives, PERMISSIONS_POLICY } from './headers.js';
+import { getWeeklyHours } from './repos/settings.js';
+import { cronRoutes } from './routes/cron.js';
+import { publicRoutes } from './routes/public.js';
+import { staffRoutes } from './routes/staff.js';
+import { injectHead, renderHead } from './seo.js';
 
 /** Hide capability tokens (guests' status links, as API calls or as pages) from access logs. */
 export function redactUrl(url: string): string {
@@ -44,32 +45,16 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
 
   app.decorateRequest('staff', null);
 
-  const mapFrame = restaurant.address.mapEmbedUrl ? new URL(restaurant.address.mapEmbedUrl).origin : null;
   await app.register(helmet, {
     contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        fontSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
-        mediaSrc: ["'self'", 'blob:'],
-        workerSrc: ["'self'", 'blob:'],
-        frameSrc: mapFrame ? [mapFrame] : ["'none'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'self'"],
-        upgradeInsecureRequests: config.cookieSecure ? [] : null,
-      },
+      useDefaults: false,
+      directives: cspDirectives({ blobPhotos: !!config.blobToken, https: config.cookieSecure }),
     },
     crossOriginEmbedderPolicy: false,
     hsts: config.cookieSecure ? undefined : false,
   });
   app.addHook('onSend', async (_req, reply) => {
-    // The in-site QR scanner needs the camera; nothing else does.
-    reply.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=()');
+    reply.header('Permissions-Policy', PERMISSIONS_POLICY);
   });
 
   // Dynamic responses (API JSON, pages) are compressed on the fly with a fast setting;
@@ -104,6 +89,11 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
         .send(errorBody('VALIDATION', 'Some fields are invalid', { fields: issuesToFields(err.issues) }));
     }
     const e = err as { statusCode?: number; code?: string; message?: string };
+    // PostgreSQL refusing a value (out-of-range number, malformed input): the request was wrong, not the server.
+    // (22003 number out of range, 22P02 malformed number, 22021 NUL character in text.)
+    if (e.code === '22003' || e.code === '22P02' || e.code === '22021') {
+      return reply.status(400).send(errorBody('VALIDATION', 'Some fields are invalid'));
+    }
     if (e.statusCode === 429) return reply.status(429).send(errorBody('RATE_LIMITED', 'Too many requests'));
     if (e.statusCode && e.statusCode >= 400 && e.statusCode < 500) {
       return reply.status(e.statusCode).send(errorBody(e.code ?? 'BAD_REQUEST', e.message ?? 'Bad request'));
@@ -114,20 +104,23 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
 
   await publicRoutes(app, ctx);
   await staffRoutes(app, ctx);
+  await cronRoutes(app, ctx);
 
-  // Uploaded dish photos: file names are unique, so they can be cached forever.
-  fs.mkdirSync(config.uploadsDir, { recursive: true });
-  await app.register(fastifyStatic, {
-    root: config.uploadsDir,
-    prefix: '/uploads/',
-    decorateReply: false,
-    index: false,
-    setHeaders: (reply) => void reply.header('Cache-Control', 'public, max-age=31536000, immutable'),
-  });
+  // Uploaded dish photos kept on disk: file names are unique, so they can be cached forever.
+  if (ctx.media?.defaultBase === '/uploads') {
+    fs.mkdirSync(config.uploadsDir, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: config.uploadsDir,
+      prefix: '/uploads/',
+      decorateReply: false,
+      index: false,
+      setHeaders: (reply) => void reply.header('Cache-Control', 'public, max-age=31536000, immutable'),
+    });
+  }
 
-  // Built website (npm run build). In development Vite serves the front end instead.
+  // Built website (npm run build). In development Vite serves the front end instead; on Vercel, its CDN does.
   const indexFile = path.join(config.staticDir, 'index.html');
-  const hasClient = fs.existsSync(indexFile);
+  const hasClient = !config.serverless && fs.existsSync(indexFile);
   if (hasClient) {
     await app.register(fastifyStatic, {
       root: config.staticDir,
@@ -144,8 +137,8 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
   }
   const template = hasClient ? fs.readFileSync(indexFile, 'utf8') : null;
   let cached: { key: string; html: string } | null = null;
-  const renderIndex = () => {
-    const hours = getWeeklyHours(ctx.db);
+  const renderIndex = async () => {
+    const hours = await getWeeklyHours(ctx.db);
     const key = JSON.stringify(hours);
     if (!cached || cached.key !== key) {
       const head = renderHead({ lang: 'fr', publicUrl: config.publicUrl, hours, shareImage: null });
@@ -157,11 +150,11 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
   // Website pages: a catch-all route (static files and API routes are more specific and win).
   // Being a real route, its HTML is compressed like any other response.
   if (template) {
-    app.get('/*', (req, reply) => {
+    app.get('/*', async (req, reply) => {
       const pathname = req.url.split('?')[0]!;
       const isPage = !pathname.startsWith('/api/') && !pathname.startsWith('/uploads/') && !/\.[a-z0-9]{2,5}$/i.test(pathname);
       if (!isPage) return reply.status(404).send(errorBody('NOT_FOUND', 'Not found'));
-      return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').send(renderIndex());
+      return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').send(await renderIndex());
     });
   }
 

@@ -4,9 +4,12 @@
  * the UI translates (see src/i18n).
  */
 import { z } from 'zod';
-import { rangesAreValid } from './availability';
-import { DIETARY_LABELS, LANGS, LIMITS, ORDER_STATUSES, RESERVATION_STATUSES, STAFF_ROLES } from './constants';
-import { isValidDateString, isValidTimeString, isValidTimeZone } from './time';
+import { rangesAreValid } from './availability.js';
+import { DIETARY_LABELS, LANGS, LIMITS, ORDER_STATUSES, RESERVATION_STATUSES, STAFF_ROLES } from './constants.js';
+import { isValidDateString, isValidTimeString, isValidTimeZone } from './time.js';
+
+/** Database ids (PostgreSQL INTEGER: up to 2 147 483 647). */
+const idSchema = z.number().int().positive().max(2_147_483_647);
 
 // The site's Content-Security-Policy forbids eval, so tell zod not to probe for it in the
 // browser (the probe is harmless but logs a CSP violation). Must run before any z.object().
@@ -86,9 +89,9 @@ export const orderInputSchema = z.object({
   items: z
     .array(
       z.object({
-        menuItemId: z.number().int().positive(),
+        menuItemId: idSchema,
         quantity: z.number().int().min(1, 'invalid_quantity').max(LIMITS.orderQuantityMax, 'invalid_quantity'),
-        optionIds: z.array(z.number().int().positive()).max(30).default([]),
+        optionIds: z.array(idSchema).max(30).default([]),
         note: optionalText(LIMITS.orderItemNoteMax),
       }),
     )
@@ -136,13 +139,13 @@ export const changePasswordSchema = z.object({
 
 export const reservationUpdateSchema = z.object({
   status: z.enum(RESERVATION_STATUSES).optional(),
-  tableId: z.number().int().positive().nullable().optional(),
+  tableId: idSchema.nullable().optional(),
   staffNote: optionalText(500),
 });
 
 export const staffReservationCreateSchema = reservationInputSchema.extend({
   status: z.enum(['pending', 'confirmed']).default('confirmed'),
-  tableId: z.number().int().positive().nullable().optional(),
+  tableId: idSchema.nullable().optional(),
   /** Staff may knowingly exceed online capacity (e.g. phone bookings). */
   ignoreCapacity: z.boolean().default(false),
   source: z.enum(['phone', 'walk_in', 'staff']).default('phone'),
@@ -226,14 +229,14 @@ export const menuCategoryInputSchema = z.object({
 
 export const menuOptionGroupInputSchema = z
   .object({
-    id: z.number().int().positive().optional(),
+    id: idSchema.optional(),
     ...localizedName,
     minSelect: z.number().int().min(0).max(20),
     maxSelect: z.number().int().min(1).max(20),
     options: z
       .array(
         z.object({
-          id: z.number().int().positive().optional(),
+          id: idSchema.optional(),
           ...localizedName,
           priceDeltaCents: z.number().int().min(-100_000).max(1_000_000),
           available: z.boolean().default(true),
@@ -246,7 +249,7 @@ export const menuOptionGroupInputSchema = z
   .refine((g) => g.maxSelect <= g.options.length, { message: 'invalid_min_max', path: ['maxSelect'] });
 
 export const menuItemInputSchema = z.object({
-  categoryId: z.number().int().positive(),
+  categoryId: idSchema,
   ...localizedName,
   description: optionalText(400),
   descriptionEn: optionalText(400),
@@ -271,7 +274,7 @@ export const menuItemPatchSchema = z.object({
   priceCents: z.number().int().min(0).max(10_000_000).optional(),
 });
 
-export const reorderSchema = z.object({ ids: z.array(z.number().int().positive()).max(500) });
+export const reorderSchema = z.object({ ids: z.array(idSchema).max(500) });
 
 // ─── Error helpers ───────────────────────────────────────────────────────────
 

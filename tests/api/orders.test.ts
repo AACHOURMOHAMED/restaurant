@@ -8,8 +8,8 @@ let menu: PublicMenu;
 
 beforeEach(async () => {
   t = await makeApp({ now: '2026-10-05T18:00:00Z' }); // Monday 19:00 local, restaurant open
-  seedDemoMenu(t.ctx.db);
-  seedDemoTables(t.ctx.db);
+  await seedDemoMenu(t.ctx.db);
+  await seedDemoTables(t.ctx.db);
   menu = (await t.app.inject('/api/public/menu')).json();
 });
 afterEach(async () => {

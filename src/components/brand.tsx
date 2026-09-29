@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useI18n } from '@/i18n';
+import { useSite } from '@/lib/queries';
 import { cn } from './ui';
 
 // ─── Logo ────────────────────────────────────────────────────────────────────
@@ -182,8 +183,10 @@ export function DishImage({
   priority?: boolean;
   showLabel?: boolean;
 }) {
-  if (!image) return <PhotoPlaceholder icon={icon} tone={tone} className={className} label={showLabel} />;
-  const src = (w: number) => `/uploads/menu/${image}-${w}.webp`;
+  // Photos live on this server ('/uploads') or on the photo storage's CDN (Vercel Blob).
+  const base = useSite().data?.mediaBase;
+  if (!image || !base) return <PhotoPlaceholder icon={icon} tone={tone} className={className} label={showLabel} />;
+  const src = (w: number) => `${base}/menu/${image}-${w}.webp`;
   return (
     <img
       src={src(960)}

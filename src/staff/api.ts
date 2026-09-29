@@ -43,7 +43,8 @@ export const useReservationCounts = (live: boolean, enabled = true) =>
   useQuery({
     queryKey: [...staffKeys.reservations, 'counts'],
     queryFn: () => api<ReservationList['counts']>('/api/staff/reservations/counts'),
-    refetchInterval: live ? false : 30_000,
+    refetchInterval: live ? false : 15_000,
+    refetchIntervalInBackground: !live,
     enabled,
   });
 
@@ -51,7 +52,9 @@ export const useOrders = (scope: 'open' | 'today', live: boolean, enabled = true
   useQuery({
     queryKey: [...staffKeys.orders, scope],
     queryFn: () => api<StaffOrder[]>(`/api/staff/orders?scope=${scope}`),
-    refetchInterval: live ? false : 15_000,
+    // Without the live stream this poll is how new orders arrive: keep it quick, even in a background tab.
+    refetchInterval: live ? false : 5_000,
+    refetchIntervalInBackground: !live,
     enabled,
   });
 

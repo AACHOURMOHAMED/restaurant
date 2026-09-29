@@ -1,24 +1,24 @@
 import type { z } from 'zod';
-import { restaurant } from '../../content/restaurant';
-import type { OrderCreated, OrderLinePublic, OrderPublic, StaffOrder } from '../../shared/api-types';
-import { openStatus } from '../../shared/availability';
-import { OPEN_ORDER_STATUSES, type Lang, type OrderStatus } from '../../shared/constants';
-import { priceSelection } from '../../shared/pricing';
-import type { orderInputSchema } from '../../shared/schemas';
-import { zonedNow, zonedTimeToUtc } from '../../shared/time';
-import type { AppContext } from '../context';
-import { immediate, type DB } from '../db';
-import { AppError, conflict, notFound } from '../errors';
-import { hmac, newReference, sha256 } from '../lib/util';
-import { getOrderableItems } from '../repos/menu';
+import { restaurant } from '../../content/restaurant.js';
+import type { OrderCreated, OrderLinePublic, OrderPublic, StaffOrder } from '../../shared/api-types.js';
+import { openStatus } from '../../shared/availability.js';
+import { OPEN_ORDER_STATUSES, type Lang, type OrderStatus } from '../../shared/constants.js';
+import { priceSelection } from '../../shared/pricing.js';
+import type { orderInputSchema } from '../../shared/schemas.js';
+import { zonedNow, zonedTimeToUtc } from '../../shared/time.js';
+import type { AppContext } from '../context.js';
+import type { Queryable } from '../db.js';
+import { AppError, conflict, notFound } from '../errors.js';
+import { hmac, newReference, sha256 } from '../lib/util.js';
+import { getOrderableItems } from '../repos/menu.js';
 import {
   getBookingSettings,
   getOrderingSettings,
   getServerSecret,
   getWeeklyHours,
   listSpecialDays,
-} from '../repos/settings';
-import { findTableByCode } from '../repos/tables';
+} from '../repos/settings.js';
+import { findTableByCode } from '../repos/tables.js';
 
 export type OrderInputParsed = z.output<typeof orderInputSchema>;
 
@@ -46,14 +46,22 @@ type LineRow = {
   note: string | null;
 };
 
-function linesFor(db: DB, orderIds: number[]): Map<number, OrderLinePublic[]> {
+/**
+ * Order writes (new orders, status changes) take this lock, so they run one after the other even
+ * across server instances: a repeated submission always finds the order its first copy created.
+ */
+const LOCK = 'orders';
+
+/** Ids arrive unbounded from requests; one beyond INTEGER can't exist (Postgres would reject it), so it becomes 0, which matches no row. */
+const rowId = (id: number) => (Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : 0);
+
+async function linesFor(q: Queryable, orderIds: number[]): Promise<Map<number, OrderLinePublic[]>> {
   const out = new Map<number, OrderLinePublic[]>();
   if (orderIds.length === 0) return out;
-  const rows = db
-    .prepare(
-      `SELECT * FROM order_lines WHERE order_id IN (${orderIds.map(() => '?').join(',')}) ORDER BY order_id, position`,
-    )
-    .all(...orderIds) as LineRow[];
+  const rows = await q.many<LineRow>(
+    `SELECT * FROM order_lines WHERE order_id IN (${orderIds.map(() => '?').join(',')}) ORDER BY order_id, position`,
+    orderIds,
+  );
   for (const r of rows) {
     const list = out.get(r.order_id) ?? [];
     list.push({
@@ -84,48 +92,46 @@ function toPublic(row: OrderRow, lines: OrderLinePublic[]): OrderPublic {
   };
 }
 
-function tokenFor(db: DB, idempotencyKey: string) {
-  return hmac(getServerSecret(db), `order:${idempotencyKey}`);
+async function tokenFor(q: Queryable, idempotencyKey: string) {
+  return hmac(await getServerSecret(q), `order:${idempotencyKey}`);
 }
 
-function uniqueReference(db: DB) {
+async function uniqueReference(q: Queryable) {
   for (;;) {
     const ref = newReference('C');
-    if (!db.prepare('SELECT 1 FROM orders WHERE reference = ?').get(ref)) return ref;
+    if (!(await q.one('SELECT 1 FROM orders WHERE reference = ?', [ref]))) return ref;
   }
 }
 
-export function createOrder(
+export async function createOrder(
   ctx: AppContext,
   input: OrderInputParsed,
   idempotencyKey: string,
-): { order: OrderCreated; created: boolean; id: number } {
+): Promise<{ order: OrderCreated; created: boolean; id: number }> {
   const { db } = ctx;
   const now = ctx.clock.now();
-  const token = tokenFor(db, idempotencyKey);
+  const token = await tokenFor(db, idempotencyKey);
   // Only a fingerprint of the key is stored, so the status link can't be rebuilt from the database.
   const keyHash = sha256(idempotencyKey);
 
-  const result = immediate(db, () => {
-    const existing = db.prepare('SELECT * FROM orders WHERE idempotency_key = ?').get(keyHash) as
-      | OrderRow
-      | undefined;
+  const result = await db.tx(async (tx) => {
+    const existing = await tx.one<OrderRow>('SELECT * FROM orders WHERE idempotency_key = ?', [keyHash]);
     if (existing) return { row: existing, created: false };
 
-    const table = findTableByCode(db, input.tableCode);
+    const table = await findTableByCode(tx, input.tableCode);
     if (!table) throw new AppError(404, 'TABLE_NOT_FOUND', 'Unknown table');
     if (!table.active) throw conflict('TABLE_INACTIVE', 'Ordering is not available for this table');
 
-    const ordering = getOrderingSettings(db);
+    const ordering = await getOrderingSettings(tx);
     if (!ordering.enabled) throw conflict('ORDERING_DISABLED', 'Ordering from the table is currently unavailable');
     if (ordering.onlyDuringOpeningHours) {
-      const booking = getBookingSettings(db);
-      const status = openStatus(now, booking.timeZone, getWeeklyHours(db), listSpecialDays(db));
+      const booking = await getBookingSettings(tx);
+      const status = openStatus(now, booking.timeZone, await getWeeklyHours(tx), await listSpecialDays(tx));
       if (!status.open) throw conflict('ORDERING_CLOSED', 'The restaurant is currently closed');
     }
 
-    const items = getOrderableItems(
-      db,
+    const items = await getOrderableItems(
+      tx,
       input.items.map((l) => l.menuItemId),
     );
     const unavailable = input.items
@@ -164,53 +170,52 @@ export function createOrder(
     }
 
     const ts = now.toISOString();
-    const orderId = Number(
-      db
-        .prepare(
-          `INSERT INTO orders (reference, token_hash, table_id, table_number, status, note, total_cents, currency, lang,
-             idempotency_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          uniqueReference(db),
-          sha256(token),
-          table.id,
-          table.number,
-          input.note,
-          total,
-          restaurant.currency.code,
-          input.lang ?? 'fr',
-          keyHash,
-          ts,
-          ts,
-        ).lastInsertRowid,
-    );
-    const insertLine = db.prepare(
-      `INSERT INTO order_lines (order_id, menu_item_id, name, name_en, quantity, unit_price_cents, line_total_cents,
-         options, note, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    lines.forEach((l, i) =>
-      insertLine.run(
-        orderId,
-        l.item.id,
-        l.item.name,
-        l.item.nameEn,
-        l.line.quantity,
-        l.unit,
-        l.lineTotal,
-        JSON.stringify(l.options),
-        l.line.note,
-        i,
-      ),
-    );
-    db.prepare(`INSERT INTO order_events (order_id, status, actor, at) VALUES (?, 'received', 'guest', ?)`).run(
+    const { id: orderId } = (await tx.one<{ id: number }>(
+      `INSERT INTO orders (reference, token_hash, table_id, table_number, status, note, total_cents, currency, lang,
+         idempotency_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'received', ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
+      [
+        await uniqueReference(tx),
+        sha256(token),
+        table.id,
+        table.number,
+        input.note,
+        total,
+        restaurant.currency.code,
+        input.lang ?? 'fr',
+        keyHash,
+        ts,
+        ts,
+      ],
+    ))!;
+    // Every line in one statement: a single round trip to the database, however long the order.
+    if (lines.length > 0) {
+      await tx.run(
+        `INSERT INTO order_lines (order_id, menu_item_id, name, name_en, quantity, unit_price_cents, line_total_cents,
+           options, note, position) VALUES ${lines.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`,
+        lines.flatMap((l, i) => [
+          orderId,
+          l.item.id,
+          l.item.name,
+          l.item.nameEn,
+          l.line.quantity,
+          l.unit,
+          l.lineTotal,
+          JSON.stringify(l.options),
+          l.line.note,
+          i,
+        ]),
+      );
+    }
+    await tx.run(`INSERT INTO order_events (order_id, status, actor, at) VALUES (?, 'received', 'guest', ?)`, [
       orderId,
       ts,
-    );
-    return { row: db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as OrderRow, created: true };
-  });
+    ]);
+    return { row: (await tx.one<OrderRow>('SELECT * FROM orders WHERE id = ?', [orderId]))!, created: true };
+  }, { lock: LOCK });
 
-  const lines = linesFor(db, [result.row.id]).get(result.row.id) ?? [];
+  const lines = (await linesFor(db, [result.row.id])).get(result.row.id) ?? [];
   if (result.created) {
     ctx.events.publish({ type: 'order.created', id: result.row.id, tableNumber: result.row.table_number });
     ctx.notifier.send('order.created', {
@@ -227,23 +232,22 @@ export function createOrder(
   };
 }
 
-export function getOrderByToken(ctx: AppContext, token: string): OrderPublic {
+export async function getOrderByToken(ctx: AppContext, token: string): Promise<OrderPublic> {
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) throw notFound('Order');
-  const row = ctx.db.prepare('SELECT * FROM orders WHERE token_hash = ?').get(sha256(token)) as OrderRow | undefined;
+  const row = await ctx.db.one<OrderRow>('SELECT * FROM orders WHERE token_hash = ?', [sha256(token)]);
   if (!row) throw notFound('Order');
-  return toPublic(row, linesFor(ctx.db, [row.id]).get(row.id) ?? []);
+  return toPublic(row, (await linesFor(ctx.db, [row.id])).get(row.id) ?? []);
 }
 
-function toStaffOrders(db: DB, rows: OrderRow[]): StaffOrder[] {
+async function toStaffOrders(q: Queryable, rows: OrderRow[]): Promise<StaffOrder[]> {
   const ids = rows.map((r) => r.id);
-  const lines = linesFor(db, ids);
+  const lines = await linesFor(q, ids);
   const history = new Map<number, { status: OrderStatus; at: string }[]>();
   if (ids.length > 0) {
-    const events = db
-      .prepare(
-        `SELECT order_id, status, at FROM order_events WHERE order_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`,
-      )
-      .all(...ids) as { order_id: number; status: OrderStatus; at: string }[];
+    const events = await q.many<{ order_id: number; status: OrderStatus; at: string }>(
+      `SELECT order_id, status, at FROM order_events WHERE order_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`,
+      ids,
+    );
     for (const e of events) {
       const list = history.get(e.order_id) ?? [];
       list.push({ status: e.status, at: e.at });
@@ -258,38 +262,48 @@ function toStaffOrders(db: DB, rows: OrderRow[]): StaffOrder[] {
   }));
 }
 
-export function listOrders(ctx: AppContext, scope: 'open' | 'today' | 'all'): StaffOrder[] {
+export async function listOrders(ctx: AppContext, scope: 'open' | 'today' | 'all'): Promise<StaffOrder[]> {
   const { db } = ctx;
   let rows: OrderRow[];
+  // `id` breaks ties between orders placed in the same millisecond, so the order of the list is stable.
   if (scope === 'open') {
-    rows = db
-      .prepare(
-        `SELECT * FROM orders WHERE status IN (${OPEN_ORDER_STATUSES.map(() => '?').join(',')}) ORDER BY created_at`,
-      )
-      .all(...OPEN_ORDER_STATUSES) as OrderRow[];
+    rows = await db.many<OrderRow>(
+      `SELECT * FROM orders WHERE status IN (${OPEN_ORDER_STATUSES.map(() => '?').join(',')}) ORDER BY created_at, id`,
+      [...OPEN_ORDER_STATUSES],
+    );
   } else if (scope === 'today') {
-    const tz = getBookingSettings(db).timeZone;
+    const tz = (await getBookingSettings(db)).timeZone;
     const today = zonedNow(tz, ctx.clock.now()).date;
     const since = zonedTimeToUtc(today, '00:00', tz).toISOString();
-    rows = db.prepare('SELECT * FROM orders WHERE created_at >= ? ORDER BY created_at DESC').all(since) as OrderRow[];
+    rows = await db.many<OrderRow>('SELECT * FROM orders WHERE created_at >= ? ORDER BY created_at DESC, id DESC', [
+      since,
+    ]);
   } else {
-    rows = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 300').all() as OrderRow[];
+    rows = await db.many<OrderRow>('SELECT * FROM orders ORDER BY created_at DESC, id DESC LIMIT 300');
   }
   return toStaffOrders(db, rows);
 }
 
-export function updateOrderStatus(ctx: AppContext, id: number, status: OrderStatus, actor: string): StaffOrder {
+export async function updateOrderStatus(
+  ctx: AppContext,
+  id: number,
+  status: OrderStatus,
+  actor: string,
+): Promise<StaffOrder> {
   const now = ctx.clock.now();
-  const row = immediate(ctx.db, () => {
-    const current = ctx.db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as OrderRow | undefined;
+  const row = await ctx.db.tx(async (tx) => {
+    const current = await tx.one<OrderRow>('SELECT * FROM orders WHERE id = ?', [rowId(id)]);
     if (!current) throw notFound('Order');
     if (current.status === status) return current;
-    ctx.db.prepare('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?').run(status, now.toISOString(), id);
-    ctx.db
-      .prepare('INSERT INTO order_events (order_id, status, actor, at) VALUES (?, ?, ?, ?)')
-      .run(id, status, actor, now.toISOString());
-    return ctx.db.prepare('SELECT * FROM orders WHERE id = ?').get(id) as OrderRow;
-  });
+    await tx.run('UPDATE orders SET status = ?, updated_at = ? WHERE id = ?', [status, now.toISOString(), id]);
+    await tx.run('INSERT INTO order_events (order_id, status, actor, at) VALUES (?, ?, ?, ?)', [
+      id,
+      status,
+      actor,
+      now.toISOString(),
+    ]);
+    return (await tx.one<OrderRow>('SELECT * FROM orders WHERE id = ?', [id]))!;
+  }, { lock: LOCK });
   ctx.events.publish({ type: 'order.updated', id });
-  return toStaffOrders(ctx.db, [row])[0]!;
+  return (await toStaffOrders(ctx.db, [row]))[0]!;
 }

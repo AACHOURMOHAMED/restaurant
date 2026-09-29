@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { StaffSettings } from '../../shared/api-types';
-import { computeDayAvailability } from '../../shared/availability';
+import type { StaffSettings } from '../../shared/api-types.js';
+import { computeDayAvailability } from '../../shared/availability.js';
 import {
   availabilityQuerySchema,
   bookingSettingsSchema,
@@ -22,11 +22,11 @@ import {
   staffUserUpdateSchema,
   tableInputSchema,
   weeklyHoursSchema,
-} from '../../shared/schemas';
-import type { AppContext } from '../context';
-import { AppError, badRequest, notFound } from '../errors';
-import { actorOf, idParam, isSameOrigin, parse, STAFF_COOKIE, staffGuard } from '../http';
-import * as menu from '../repos/menu';
+} from '../../shared/schemas.js';
+import type { AppContext } from '../context.js';
+import { AppError, badRequest, conflict, notFound } from '../errors.js';
+import { actorOf, idParam, isSameOrigin, parse, STAFF_COOKIE, staffGuard } from '../http.js';
+import * as menu from '../repos/menu.js';
 import {
   deleteSpecialDay,
   getBookingSettings,
@@ -34,11 +34,13 @@ import {
   getWeeklyHours,
   listSpecialDays,
   setBookingSettings,
+  setMediaBase,
   setOrderingSettings,
   setWeeklyHours,
   upsertSpecialDay,
-} from '../repos/settings';
-import * as tables from '../repos/tables';
+} from '../repos/settings.js';
+import * as tables from '../repos/tables.js';
+import { seedDemoMenu } from '../seed/demo.js';
 import {
   changeOwnPassword,
   createSession,
@@ -48,9 +50,9 @@ import {
   listUsers,
   login,
   updateUser,
-} from '../services/auth';
-import { deleteMenuImage, processMenuImage } from '../services/images';
-import { listOrders, updateOrderStatus } from '../services/orders';
+} from '../services/auth.js';
+import { deleteMenuImage, processMenuImage } from '../services/images.js';
+import { listOrders, updateOrderStatus } from '../services/orders.js';
 import {
   activeBookingsOn,
   createReservation,
@@ -58,7 +60,7 @@ import {
   listReservations,
   reservationCounts,
   updateReservation,
-} from '../services/reservations';
+} from '../services/reservations.js';
 
 export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, config } = ctx;
@@ -72,7 +74,7 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!isSameOrigin(req, config.publicUrl)) throw new AppError(403, 'CSRF', 'Cross-site request refused');
     const { email, password } = parse(loginSchema, req.body);
     const { user, userId } = await login(db, email, password, req.ip, now());
-    const token = createSession(db, userId, config.sessionTtlMs, now());
+    const token = await createSession(db, userId, config.sessionTtlMs, now());
     reply.setCookie(STAFF_COOKIE, token, {
       path: '/api/staff',
       httpOnly: true,
@@ -84,7 +86,7 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post('/api/staff/logout', async (req, reply) => {
-    destroySession(db, req.cookies[STAFF_COOKIE]);
+    await destroySession(db, req.cookies[STAFF_COOKIE]);
     reply.clearCookie(STAFF_COOKIE, { path: '/api/staff' });
     return { ok: true };
   });
@@ -102,7 +104,10 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // ─── Live events (Server-Sent Events) ────────────────────────────────────────
 
-  app.get('/api/staff/events', staff, (req, reply) => {
+  app.get('/api/staff/events', staff, async (req, reply) => {
+    // Serverless instances don't share memory (and can't hold connections open for long):
+    // 204 tells the browser not to reconnect, and the dashboard polls instead.
+    if (config.serverless) return reply.code(204).send();
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, {
@@ -115,8 +120,10 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
     const unsubscribe = ctx.events.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
     const token = req.cookies[STAFF_COOKIE];
     const ping = setInterval(() => {
-      if (!getSessionUser(db, token, config.sessionTtlMs, now())) return res.end();
-      res.write(': ping\n\n');
+      getSessionUser(db, token, config.sessionTtlMs, now()).then(
+        (user) => (user ? res.write(': ping\n\n') : res.end()),
+        () => res.end(),
+      );
     }, 25_000);
     req.raw.on('close', () => {
       clearInterval(ping);
@@ -128,7 +135,8 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/api/staff/reservations', staff, async (req) => {
     const q = parse(reservationListQuerySchema, req.query);
-    return { reservations: listReservations(ctx, q), counts: reservationCounts(ctx) };
+    const [reservations, counts] = await Promise.all([listReservations(ctx, q), reservationCounts(ctx)]);
+    return { reservations, counts };
   });
 
   app.get('/api/staff/reservations/counts', staff, async () => reservationCounts(ctx));
@@ -137,14 +145,14 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post('/api/staff/reservations', staff, async (req, reply) => {
     const input = parse(staffReservationCreateSchema, req.body);
-    const { id } = createReservation(ctx, input, {
+    const { id } = await createReservation(ctx, input, {
       source: input.source,
       actor: actorOf(req),
       status: input.status,
       ignoreCapacity: input.ignoreCapacity,
       tableId: input.tableId ?? null,
     });
-    return reply.code(201).send(getStaffReservation(ctx, id));
+    return reply.code(201).send(await getStaffReservation(ctx, id));
   });
 
   app.patch('/api/staff/reservations/:id', staff, async (req) =>
@@ -153,42 +161,42 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/api/staff/availability', staff, async (req) => {
     const { date, party } = parse(availabilityQuerySchema, req.query);
-    return computeDayAvailability({
-      date,
-      partySize: party,
-      settings: getBookingSettings(db),
-      weekly: getWeeklyHours(db),
-      specialDays: listSpecialDays(db, date, date),
-      existing: activeBookingsOn(db, date),
-      now: now(),
-    });
+    const [settings, weekly, specialDays, existing] = await Promise.all([
+      getBookingSettings(db),
+      getWeeklyHours(db),
+      listSpecialDays(db, date, date),
+      activeBookingsOn(db, date),
+    ]);
+    return computeDayAvailability({ date, partySize: party, settings, weekly, specialDays, existing, now: now() });
   });
 
   // ─── Settings ──────────────────────────────────────────────────────────────
 
-  app.get('/api/staff/settings', staff, async (): Promise<StaffSettings> => ({
-    booking: getBookingSettings(db),
-    ordering: getOrderingSettings(db),
-    hours: getWeeklyHours(db),
-    specialDays: listSpecialDays(db),
-    publicUrl: config.publicUrl,
-  }));
+  app.get('/api/staff/settings', staff, async (): Promise<StaffSettings> => {
+    const [booking, ordering, hours, specialDays] = await Promise.all([
+      getBookingSettings(db),
+      getOrderingSettings(db),
+      getWeeklyHours(db),
+      listSpecialDays(db),
+    ]);
+    return { booking, ordering, hours, specialDays, publicUrl: config.publicUrl };
+  });
 
   app.put('/api/staff/settings/booking', admin, async (req) => {
-    setBookingSettings(db, parse(bookingSettingsSchema, req.body));
+    await setBookingSettings(db, parse(bookingSettingsSchema, req.body));
     ctx.events.publish({ type: 'settings.updated' });
     return getBookingSettings(db);
   });
 
   // Any staff member may pause/resume table ordering (e.g. when the kitchen is overloaded).
   app.put('/api/staff/settings/ordering', staff, async (req) => {
-    setOrderingSettings(db, parse(orderingSettingsSchema, req.body));
+    await setOrderingSettings(db, parse(orderingSettingsSchema, req.body));
     ctx.events.publish({ type: 'settings.updated' });
     return getOrderingSettings(db);
   });
 
   app.put('/api/staff/settings/hours', admin, async (req) => {
-    setWeeklyHours(db, parse(weeklyHoursSchema, req.body));
+    await setWeeklyHours(db, parse(weeklyHoursSchema, req.body));
     ctx.events.publish({ type: 'settings.updated' });
     return getWeeklyHours(db);
   });
@@ -196,14 +204,14 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   app.put('/api/staff/special-days/:date', admin, async (req) => {
     const date = parse(dateSchema, (req.params as { date: string }).date);
     const day = parse(specialDaySchema, { ...(req.body as object), date });
-    upsertSpecialDay(db, day);
+    await upsertSpecialDay(db, day);
     ctx.events.publish({ type: 'settings.updated' });
     return listSpecialDays(db);
   });
 
   app.delete('/api/staff/special-days/:date', admin, async (req) => {
     const date = parse(dateSchema, (req.params as { date: string }).date);
-    if (!deleteSpecialDay(db, date)) throw notFound('Special day');
+    if (!(await deleteSpecialDay(db, date))) throw notFound('Special day');
     ctx.events.publish({ type: 'settings.updated' });
     return listSpecialDays(db);
   });
@@ -213,31 +221,31 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/api/staff/tables', staff, async () => tables.listTables(db));
 
   app.post('/api/staff/tables', admin, async (req, reply) => {
-    const table = tables.createTable(db, parse(tableInputSchema, req.body), now());
+    const table = await tables.createTable(db, parse(tableInputSchema, req.body), now());
     ctx.events.publish({ type: 'tables.updated' });
     return reply.code(201).send(table);
   });
 
   app.put('/api/staff/tables/order', admin, async (req) => {
-    tables.reorderTables(db, parse(reorderSchema, req.body).ids);
+    await tables.reorderTables(db, parse(reorderSchema, req.body).ids);
     ctx.events.publish({ type: 'tables.updated' });
     return tables.listTables(db);
   });
 
   app.put('/api/staff/tables/:id', admin, async (req) => {
-    const table = tables.updateTable(db, idParam(req), parse(tableInputSchema, req.body), now());
+    const table = await tables.updateTable(db, idParam(req), parse(tableInputSchema, req.body), now());
     ctx.events.publish({ type: 'tables.updated' });
     return table;
   });
 
   app.post('/api/staff/tables/:id/regenerate-code', admin, async (req) => {
-    const table = tables.regenerateTableCode(db, idParam(req), now());
+    const table = await tables.regenerateTableCode(db, idParam(req), now());
     ctx.events.publish({ type: 'tables.updated' });
     return table;
   });
 
   app.delete('/api/staff/tables/:id', admin, async (req) => {
-    tables.deleteTable(db, idParam(req));
+    await tables.deleteTable(db, idParam(req));
     ctx.events.publish({ type: 'tables.updated' });
     return { ok: true };
   });
@@ -253,41 +261,46 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   // ─── Menu ──────────────────────────────────────────────────────────────────
 
   const menuChanged = () => ctx.events.publish({ type: 'menu.updated' });
+  // A photo that can't be deleted only wastes a little space: never fail the request for it.
+  const removeImage = async (image: string) => {
+    if (!ctx.media) return;
+    await deleteMenuImage(image, ctx.media).catch((err: unknown) => app.log.warn({ err }, 'could not delete a dish photo'));
+  };
 
   app.get('/api/staff/menu', staff, async () => menu.getStaffMenu(db));
 
   app.post('/api/staff/menu/categories', admin, async (req, reply) => {
-    const id = menu.createCategory(db, parse(menuCategoryInputSchema, req.body), now());
+    const id = await menu.createCategory(db, parse(menuCategoryInputSchema, req.body), now());
     menuChanged();
     return reply.code(201).send({ id });
   });
 
   app.put('/api/staff/menu/categories/order', admin, async (req) => {
-    menu.reorderCategories(db, parse(reorderSchema, req.body).ids);
+    await menu.reorderCategories(db, parse(reorderSchema, req.body).ids);
     menuChanged();
     return { ok: true };
   });
 
   app.put('/api/staff/menu/categories/:id', admin, async (req) => {
-    menu.updateCategory(db, idParam(req), parse(menuCategoryInputSchema, req.body), now());
+    await menu.updateCategory(db, idParam(req), parse(menuCategoryInputSchema, req.body), now());
     menuChanged();
     return { ok: true };
   });
 
   app.delete('/api/staff/menu/categories/:id', admin, async (req) => {
-    menu.deleteCategory(db, idParam(req));
+    await menu.deleteCategory(db, idParam(req));
     menuChanged();
     return { ok: true };
   });
 
   app.post('/api/staff/menu/items', admin, async (req, reply) => {
-    const id = menu.createItem(db, parse(menuItemInputSchema, req.body), now());
+    const id = await menu.createItem(db, parse(menuItemInputSchema, req.body), now());
     menuChanged();
     return reply.code(201).send({ id });
   });
 
   app.put('/api/staff/menu/items/order', admin, async (req) => {
-    menu.reorderItems(db, parse(reorderSchema, req.body).ids);
+    await menu.reorderItems(db, parse(reorderSchema, req.body).ids);
     menuChanged();
     return { ok: true };
   });
@@ -295,10 +308,10 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   app.put('/api/staff/menu/items/:id', admin, async (req) => {
     const id = idParam(req);
     const input = parse(menuItemInputSchema, req.body);
-    const previousImage = menu.getItemImage(db, id);
-    menu.updateItem(db, id, input, now());
-    if (previousImage && previousImage !== input.image && !menu.imageInUse(db, previousImage)) {
-      await deleteMenuImage(previousImage, config.uploadsDir);
+    const previousImage = await menu.getItemImage(db, id);
+    await menu.updateItem(db, id, input, now());
+    if (previousImage && previousImage !== input.image && !(await menu.imageInUse(db, previousImage))) {
+      await removeImage(previousImage);
     }
     menuChanged();
     return { ok: true };
@@ -310,21 +323,29 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
     if ((patch.priceCents !== undefined || patch.visible !== undefined || patch.isSpecial !== undefined) && req.staff!.role !== 'admin') {
       throw new AppError(403, 'FORBIDDEN', 'Administrator access required');
     }
-    menu.patchItem(db, idParam(req), patch, now());
+    await menu.patchItem(db, idParam(req), patch, now());
     menuChanged();
     return { ok: true };
   });
 
   app.delete('/api/staff/menu/items/:id', admin, async (req) => {
-    const image = menu.deleteItem(db, idParam(req));
-    if (image && !menu.imageInUse(db, image)) await deleteMenuImage(image, config.uploadsDir);
+    const image = await menu.deleteItem(db, idParam(req));
+    if (image && !(await menu.imageInUse(db, image))) await removeImage(image);
+    menuChanged();
+    return { ok: true };
+  });
+
+  // Lets a new site be tried out without the command line (e.g. on Vercel): only into an empty menu.
+  app.post('/api/staff/menu/demo/load', admin, async () => {
+    if ((await menu.getStaffMenu(db)).categories.length > 0) throw conflict('MENU_NOT_EMPTY', 'The menu already has categories');
+    await seedDemoMenu(db, now());
     menuChanged();
     return { ok: true };
   });
 
   app.post('/api/staff/menu/demo/remove', admin, async () => {
-    const images = menu.deleteDemoMenu(db);
-    await Promise.all(images.map((image) => deleteMenuImage(image, config.uploadsDir)));
+    const images = await menu.deleteDemoMenu(db);
+    await Promise.all(images.map(removeImage));
     menuChanged();
     return { ok: true };
   });
@@ -334,7 +355,11 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!file) throw badRequest('VALIDATION', 'No file uploaded');
     const buffer = await file.toBuffer();
     if (file.file.truncated) throw badRequest('IMAGE_TOO_LARGE', 'Photos must be smaller than 12 MB');
-    const image = await processMenuImage(buffer, config.uploadsDir);
+    if (!ctx.media) {
+      throw new AppError(503, 'UPLOADS_UNAVAILABLE', 'Photo storage is not set up: connect a Vercel Blob store to the project.');
+    }
+    const { image, base } = await processMenuImage(buffer, ctx.media);
+    await setMediaBase(db, base);
     return reply.code(201).send({ image });
   });
 

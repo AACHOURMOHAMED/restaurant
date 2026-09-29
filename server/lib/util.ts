@@ -60,23 +60,3 @@ export function phoneDigits(phone: string): string {
 }
 
 export const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? '';
-
-/** Counts events per key over a sliding time window (in memory — the app runs as one process). */
-export class WindowCounter {
-  private readonly hits = new Map<string, number[]>();
-  constructor(private readonly windowMs: number) {}
-
-  count(key: string, now: number): number {
-    const recent = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
-    if (recent.length > 0) this.hits.set(key, recent);
-    else this.hits.delete(key);
-    return recent.length;
-  }
-
-  add(key: string, now: number): void {
-    const list = this.hits.get(key) ?? [];
-    list.push(now);
-    this.hits.set(key, list);
-    if (this.hits.size > 10_000) for (const k of [...this.hits.keys()]) this.count(k, now); // drop idle keys
-  }
-}

@@ -4,6 +4,7 @@
  * manifest used by the <Photo> component. Run automatically by `npm run dev`
  * and `npm run build`; safe to run repeatedly (unchanged photos are skipped).
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -26,9 +27,11 @@ async function main() {
   for (const file of files) {
     const input = path.join(SRC, file);
     const mtime = Math.floor(fs.statSync(input).mtimeMs);
-    const base = file.replace(EXT, '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    // The content hash in the name lets browsers and CDNs cache photos forever: a new photo gets a new URL.
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(input)).digest('hex').slice(0, 10);
+    const base = `${file.replace(EXT, '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hash}`;
     const prev = previous[file];
-    if (prev && prev.mtime === mtime && fs.existsSync(path.join(OUT, `${base}-${prev.widths[0]}.webp`))) {
+    if (prev && prev.base === base && fs.existsSync(path.join(OUT, `${base}-${prev.widths[0]}.webp`))) {
       manifest[file] = prev;
       continue;
     }

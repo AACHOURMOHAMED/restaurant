@@ -7,12 +7,18 @@ import type {
   StaffMenu,
   StaffMenuCategory,
   StaffMenuItem,
-} from '../../shared/api-types';
-import type { DietaryLabel } from '../../shared/constants';
-import type { menuCategoryInputSchema, menuItemInputSchema, menuItemPatchSchema } from '../../shared/schemas';
-import type { DB } from '../db';
-import { badRequest, notFound } from '../errors';
-import { getFlag, menuUpdatedAt, setFlag, touchMenu } from './settings';
+} from '../../shared/api-types.js';
+import type { DietaryLabel } from '../../shared/constants.js';
+import type { menuCategoryInputSchema, menuItemInputSchema, menuItemPatchSchema } from '../../shared/schemas.js';
+import { atomically, type Db, type Queryable, rowId } from '../db.js';
+import { badRequest, notFound } from '../errors.js';
+import { getFlag, menuUpdatedAt, setFlag, touchMenu } from './settings.js';
+
+/**
+ * Advisory lock held by menu changes that read before they write (next sort position, "does this
+ * category still exist?", a dish's current option groups…), so two edits never interleave.
+ */
+export const MENU_LOCK = 'menu';
 
 type CategoryRow = {
   id: number;
@@ -61,19 +67,19 @@ export type CategoryInput = z.output<typeof menuCategoryInputSchema>;
 export type ItemInput = z.output<typeof menuItemInputSchema>;
 export type ItemPatch = z.output<typeof menuItemPatchSchema>;
 
-function loadGroups(db: DB, itemIds: number[]): Map<number, MenuOptionGroupPublic[]> {
+async function loadGroups(q: Queryable, itemIds: number[]): Promise<Map<number, MenuOptionGroupPublic[]>> {
   const byItem = new Map<number, MenuOptionGroupPublic[]>();
   if (itemIds.length === 0) return byItem;
   const placeholders = itemIds.map(() => '?').join(',');
-  const groups = db
-    .prepare(`SELECT * FROM menu_option_groups WHERE item_id IN (${placeholders}) ORDER BY sort_order, id`)
-    .all(...itemIds) as GroupRow[];
+  const groups = await q.many<GroupRow>(
+    `SELECT * FROM menu_option_groups WHERE item_id IN (${placeholders}) ORDER BY sort_order, id`,
+    itemIds,
+  );
   if (groups.length === 0) return byItem;
-  const options = db
-    .prepare(
-      `SELECT * FROM menu_options WHERE group_id IN (${groups.map(() => '?').join(',')}) ORDER BY sort_order, id`,
-    )
-    .all(...groups.map((g) => g.id)) as OptionRow[];
+  const options = await q.many<OptionRow>(
+    `SELECT * FROM menu_options WHERE group_id IN (${groups.map(() => '?').join(',')}) ORDER BY sort_order, id`,
+    groups.map((g) => g.id),
+  );
   const optionsByGroup = new Map<number, OptionRow[]>();
   for (const o of options) {
     const list = optionsByGroup.get(o.group_id) ?? [];
@@ -120,17 +126,12 @@ function toItem(r: ItemRow, groups: Map<number, MenuOptionGroupPublic[]>): Staff
   };
 }
 
-function loadMenu(db: DB, visibleOnly: boolean): StaffMenuCategory[] {
-  const categories = db
-    .prepare(`SELECT * FROM menu_categories ${visibleOnly ? 'WHERE visible = 1' : ''} ORDER BY sort_order, id`)
-    .all() as CategoryRow[];
-  const items = db
-    .prepare(`SELECT * FROM menu_items ${visibleOnly ? 'WHERE visible = 1' : ''} ORDER BY sort_order, id`)
-    .all() as ItemRow[];
-  const groups = loadGroups(
-    db,
-    items.map((i) => i.id),
+async function loadMenu(q: Queryable, visibleOnly: boolean): Promise<StaffMenuCategory[]> {
+  const categories = await q.many<CategoryRow>(
+    `SELECT * FROM menu_categories ${visibleOnly ? 'WHERE visible = 1' : ''} ORDER BY sort_order, id`,
   );
+  const items = await q.many<ItemRow>(`SELECT * FROM menu_items ${visibleOnly ? 'WHERE visible = 1' : ''} ORDER BY sort_order, id`);
+  const groups = await loadGroups(q, items.map((i) => i.id));
   return categories.map((c) => ({
     id: c.id,
     name: c.name,
@@ -143,222 +144,222 @@ function loadMenu(db: DB, visibleOnly: boolean): StaffMenuCategory[] {
   }));
 }
 
-export function getPublicMenu(db: DB): PublicMenu {
-  const categories: MenuCategoryPublic[] = loadMenu(db, true)
+export async function getPublicMenu(q: Queryable): Promise<PublicMenu> {
+  // Read before the dishes, so the stamp is never newer than the content it is sent with.
+  const updatedAt = await menuUpdatedAt(q);
+  const categories: MenuCategoryPublic[] = (await loadMenu(q, true))
     .filter((c) => c.items.length > 0)
     .map(({ visible: _v, sortOrder: _s, items, ...c }) => ({
       ...c,
       items: items.map(({ visible: _iv, sortOrder: _is, ...item }): MenuItemPublic => item),
     }));
-  return { categories, updatedAt: menuUpdatedAt(db) };
+  return { categories, updatedAt };
 }
 
-export function getStaffMenu(db: DB): StaffMenu {
-  return { categories: loadMenu(db, false), demo: getFlag(db, 'demo_menu') };
+export async function getStaffMenu(q: Queryable): Promise<StaffMenu> {
+  return { categories: await loadMenu(q, false), demo: await getFlag(q, 'demo_menu') };
 }
 
 /** Items (with options) that can currently be ordered, keyed by id. */
-export function getOrderableItems(db: DB, ids: number[]): Map<number, StaffMenuItem> {
+export async function getOrderableItems(q: Queryable, ids: number[]): Promise<Map<number, StaffMenuItem>> {
   const unique = [...new Set(ids)];
   const out = new Map<number, StaffMenuItem>();
   if (unique.length === 0) return out;
-  const rows = db
-    .prepare(
-      `SELECT i.* FROM menu_items i JOIN menu_categories c ON c.id = i.category_id
-       WHERE i.id IN (${unique.map(() => '?').join(',')}) AND i.visible = 1 AND c.visible = 1`,
-    )
-    .all(...unique) as ItemRow[];
-  const groups = loadGroups(
-    db,
-    rows.map((r) => r.id),
+  const rows = await q.many<ItemRow>(
+    `SELECT i.* FROM menu_items i JOIN menu_categories c ON c.id = i.category_id
+     WHERE i.id IN (${unique.map(() => '?').join(',')}) AND i.visible = 1 AND c.visible = 1`,
+    unique.map(rowId),
   );
+  const groups = await loadGroups(q, rows.map((r) => r.id));
   for (const r of rows) out.set(r.id, toItem(r, groups));
   return out;
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────
 
-export function createCategory(db: DB, input: CategoryInput, now: Date): number {
-  const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_categories').get() as { m: number };
-  const ts = now.toISOString();
-  const info = db
-    .prepare(
+export async function createCategory(db: Db | Queryable, input: CategoryInput, now: Date): Promise<number> {
+  return atomically(db, MENU_LOCK, async (q) => {
+    const max = (await q.one<{ m: number }>('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_categories'))!;
+    const ts = now.toISOString();
+    const { id } = (await q.one<{ id: number }>(
       `INSERT INTO menu_categories (name, name_en, description, description_en, visible, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(input.name, input.nameEn, input.description, input.descriptionEn, input.visible ? 1 : 0, max.m + 1, ts, ts);
-  touchMenu(db);
-  return Number(info.lastInsertRowid);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [input.name, input.nameEn, input.description, input.descriptionEn, input.visible ? 1 : 0, max.m + 1, ts, ts],
+    ))!;
+    await touchMenu(q);
+    return id;
+  });
 }
 
-export function updateCategory(db: DB, id: number, input: CategoryInput, now: Date): void {
-  const res = db
-    .prepare(
-      `UPDATE menu_categories SET name = ?, name_en = ?, description = ?, description_en = ?, visible = ?, updated_at = ?
-       WHERE id = ?`,
-    )
-    .run(input.name, input.nameEn, input.description, input.descriptionEn, input.visible ? 1 : 0, now.toISOString(), id);
-  if (res.changes === 0) throw notFound('Category');
-  touchMenu(db);
+export async function updateCategory(q: Queryable, id: number, input: CategoryInput, now: Date): Promise<void> {
+  const changes = await q.run(
+    `UPDATE menu_categories SET name = ?, name_en = ?, description = ?, description_en = ?, visible = ?, updated_at = ?
+     WHERE id = ?`,
+    [input.name, input.nameEn, input.description, input.descriptionEn, input.visible ? 1 : 0, now.toISOString(), rowId(id)],
+  );
+  if (changes === 0) throw notFound('Category');
+  await touchMenu(q);
 }
 
-export function deleteCategory(db: DB, id: number): void {
-  if (db.prepare('DELETE FROM menu_categories WHERE id = ?').run(id).changes === 0) throw notFound('Category');
-  touchMenu(db);
+export async function deleteCategory(db: Db | Queryable, id: number): Promise<void> {
+  await atomically(db, MENU_LOCK, async (q) => {
+    if ((await q.run('DELETE FROM menu_categories WHERE id = ?', [rowId(id)])) === 0) throw notFound('Category');
+    await touchMenu(q);
+  });
 }
 
-export function reorderCategories(db: DB, ids: number[]): void {
-  const stmt = db.prepare('UPDATE menu_categories SET sort_order = ? WHERE id = ?');
-  db.transaction(() => ids.forEach((id, i) => stmt.run(i + 1, id)))();
-  touchMenu(db);
+export async function reorderCategories(db: Db | Queryable, ids: number[]): Promise<void> {
+  await atomically(db, null, async (q) => {
+    for (const [i, id] of ids.entries()) await q.run('UPDATE menu_categories SET sort_order = ? WHERE id = ?', [i + 1, rowId(id)]);
+    await touchMenu(q);
+  });
 }
 
 // ─── Items ───────────────────────────────────────────────────────────────────
 
-function assertCategory(db: DB, id: number) {
-  if (!db.prepare('SELECT 1 FROM menu_categories WHERE id = ?').get(id)) {
+async function assertCategory(q: Queryable, id: number): Promise<void> {
+  if (!(await q.one('SELECT 1 FROM menu_categories WHERE id = ?', [rowId(id)]))) {
     throw badRequest('VALIDATION', 'Unknown category', { categoryId: 'invalid_category' });
   }
 }
 
 /** Upserts option groups/options, keeping existing ids stable so guests' carts stay valid. */
-function saveOptionGroups(db: DB, itemId: number, groups: ItemInput['optionGroups']): void {
-  const existingGroups = db.prepare('SELECT id FROM menu_option_groups WHERE item_id = ?').all(itemId) as {
-    id: number;
-  }[];
+async function saveOptionGroups(q: Queryable, itemId: number, groups: ItemInput['optionGroups']): Promise<void> {
+  const existingGroups = await q.many<{ id: number }>('SELECT id FROM menu_option_groups WHERE item_id = ?', [itemId]);
   const existingGroupIds = new Set(existingGroups.map((g) => g.id));
   const keptGroups = new Set<number>();
 
-  groups.forEach((g, gi) => {
+  for (const [gi, g] of groups.entries()) {
     let groupId: number;
     if (g.id && existingGroupIds.has(g.id)) {
       groupId = g.id;
-      db.prepare(
+      await q.run(
         'UPDATE menu_option_groups SET name = ?, name_en = ?, min_select = ?, max_select = ?, sort_order = ? WHERE id = ?',
-      ).run(g.name, g.nameEn, g.minSelect, g.maxSelect, gi, groupId);
-    } else {
-      groupId = Number(
-        db
-          .prepare(
-            'INSERT INTO menu_option_groups (item_id, name, name_en, min_select, max_select, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-          )
-          .run(itemId, g.name, g.nameEn, g.minSelect, g.maxSelect, gi).lastInsertRowid,
+        [g.name, g.nameEn, g.minSelect, g.maxSelect, gi, groupId],
       );
+    } else {
+      groupId = (await q.one<{ id: number }>(
+        `INSERT INTO menu_option_groups (item_id, name, name_en, min_select, max_select, sort_order) VALUES (?, ?, ?, ?, ?, ?)
+         RETURNING id`,
+        [itemId, g.name, g.nameEn, g.minSelect, g.maxSelect, gi],
+      ))!.id;
     }
     keptGroups.add(groupId);
 
     const existingOptions = new Set(
-      (db.prepare('SELECT id FROM menu_options WHERE group_id = ?').all(groupId) as { id: number }[]).map((o) => o.id),
+      (await q.many<{ id: number }>('SELECT id FROM menu_options WHERE group_id = ?', [groupId])).map((o) => o.id),
     );
     const keptOptions = new Set<number>();
-    g.options.forEach((o, oi) => {
+    for (const [oi, o] of g.options.entries()) {
       if (o.id && existingOptions.has(o.id)) {
-        db.prepare(
+        await q.run(
           'UPDATE menu_options SET name = ?, name_en = ?, price_delta_cents = ?, available = ?, sort_order = ? WHERE id = ?',
-        ).run(o.name, o.nameEn, o.priceDeltaCents, o.available ? 1 : 0, oi, o.id);
+          [o.name, o.nameEn, o.priceDeltaCents, o.available ? 1 : 0, oi, o.id],
+        );
         keptOptions.add(o.id);
       } else {
-        const id = db
-          .prepare(
-            'INSERT INTO menu_options (group_id, name, name_en, price_delta_cents, available, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-          )
-          .run(groupId, o.name, o.nameEn, o.priceDeltaCents, o.available ? 1 : 0, oi).lastInsertRowid;
-        keptOptions.add(Number(id));
+        const { id } = (await q.one<{ id: number }>(
+          `INSERT INTO menu_options (group_id, name, name_en, price_delta_cents, available, sort_order) VALUES (?, ?, ?, ?, ?, ?)
+           RETURNING id`,
+          [groupId, o.name, o.nameEn, o.priceDeltaCents, o.available ? 1 : 0, oi],
+        ))!;
+        keptOptions.add(id);
       }
-    });
-    for (const id of existingOptions) if (!keptOptions.has(id)) db.prepare('DELETE FROM menu_options WHERE id = ?').run(id);
-  });
+    }
+    for (const id of existingOptions) if (!keptOptions.has(id)) await q.run('DELETE FROM menu_options WHERE id = ?', [id]);
+  }
 
   for (const id of existingGroupIds) {
-    if (!keptGroups.has(id)) db.prepare('DELETE FROM menu_option_groups WHERE id = ?').run(id);
+    if (!keptGroups.has(id)) await q.run('DELETE FROM menu_option_groups WHERE id = ?', [id]);
   }
 }
 
-export function createItem(db: DB, input: ItemInput, now: Date, opts: { demo?: boolean } = {}): number {
-  assertCategory(db, input.categoryId);
-  return db.transaction(() => {
-    const max = db
-      .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_items WHERE category_id = ?')
-      .get(input.categoryId) as { m: number };
+export async function createItem(
+  db: Db | Queryable,
+  input: ItemInput,
+  now: Date,
+  opts: { demo?: boolean } = {},
+): Promise<number> {
+  return atomically(db, MENU_LOCK, async (q) => {
+    await assertCategory(q, input.categoryId);
+    const max = (await q.one<{ m: number }>('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_items WHERE category_id = ?', [
+      input.categoryId,
+    ]))!;
     const ts = now.toISOString();
-    const id = Number(
-      db
-        .prepare(
-          `INSERT INTO menu_items (category_id, name, name_en, description, description_en, price_cents, image, dietary,
-             available, visible, is_special, sort_order, is_demo, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          input.categoryId,
-          input.name,
-          input.nameEn,
-          input.description,
-          input.descriptionEn,
-          input.priceCents,
-          input.image,
-          JSON.stringify(input.dietary),
-          input.available ? 1 : 0,
-          input.visible ? 1 : 0,
-          input.isSpecial ? 1 : 0,
-          max.m + 1,
-          opts.demo ? 1 : 0,
-          ts,
-          ts,
-        ).lastInsertRowid,
-    );
-    saveOptionGroups(db, id, input.optionGroups);
-    touchMenu(db);
+    const { id } = (await q.one<{ id: number }>(
+      `INSERT INTO menu_items (category_id, name, name_en, description, description_en, price_cents, image, dietary,
+         available, visible, is_special, sort_order, is_demo, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      [
+        input.categoryId,
+        input.name,
+        input.nameEn,
+        input.description,
+        input.descriptionEn,
+        input.priceCents,
+        input.image,
+        JSON.stringify(input.dietary),
+        input.available ? 1 : 0,
+        input.visible ? 1 : 0,
+        input.isSpecial ? 1 : 0,
+        max.m + 1,
+        opts.demo ? 1 : 0,
+        ts,
+        ts,
+      ],
+    ))!;
+    await saveOptionGroups(q, id, input.optionGroups);
+    await touchMenu(q);
     return id;
-  })();
+  });
 }
 
-export function getItemImage(db: DB, id: number): string | null | undefined {
-  const row = db.prepare('SELECT image FROM menu_items WHERE id = ?').get(id) as { image: string | null } | undefined;
+export async function getItemImage(q: Queryable, id: number): Promise<string | null | undefined> {
+  const row = await q.one<{ image: string | null }>('SELECT image FROM menu_items WHERE id = ?', [rowId(id)]);
   return row ? row.image : undefined;
 }
 
-export function updateItem(db: DB, id: number, input: ItemInput, now: Date): void {
-  assertCategory(db, input.categoryId);
-  db.transaction(() => {
-    const current = db.prepare('SELECT category_id FROM menu_items WHERE id = ?').get(id) as
-      | { category_id: number }
-      | undefined;
+export async function updateItem(db: Db | Queryable, id: number, input: ItemInput, now: Date): Promise<void> {
+  await atomically(db, MENU_LOCK, async (q) => {
+    await assertCategory(q, input.categoryId);
+    const current = await q.one<{ category_id: number }>('SELECT category_id FROM menu_items WHERE id = ?', [rowId(id)]);
     if (!current) throw notFound('Menu item');
     let sortClause = '';
     const params: unknown[] = [];
     if (current.category_id !== input.categoryId) {
-      const max = db
-        .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_items WHERE category_id = ?')
-        .get(input.categoryId) as { m: number };
+      const max = (await q.one<{ m: number }>('SELECT COALESCE(MAX(sort_order), 0) AS m FROM menu_items WHERE category_id = ?', [
+        input.categoryId,
+      ]))!;
       sortClause = ', sort_order = ?';
       params.push(max.m + 1);
     }
-    db.prepare(
+    await q.run(
       `UPDATE menu_items SET category_id = ?, name = ?, name_en = ?, description = ?, description_en = ?, price_cents = ?,
          image = ?, dietary = ?, available = ?, visible = ?, is_special = ?, updated_at = ?${sortClause}
        WHERE id = ?`,
-    ).run(
-      input.categoryId,
-      input.name,
-      input.nameEn,
-      input.description,
-      input.descriptionEn,
-      input.priceCents,
-      input.image,
-      JSON.stringify(input.dietary),
-      input.available ? 1 : 0,
-      input.visible ? 1 : 0,
-      input.isSpecial ? 1 : 0,
-      now.toISOString(),
-      ...params,
-      id,
+      [
+        input.categoryId,
+        input.name,
+        input.nameEn,
+        input.description,
+        input.descriptionEn,
+        input.priceCents,
+        input.image,
+        JSON.stringify(input.dietary),
+        input.available ? 1 : 0,
+        input.visible ? 1 : 0,
+        input.isSpecial ? 1 : 0,
+        now.toISOString(),
+        ...params,
+        id,
+      ],
     );
-    saveOptionGroups(db, id, input.optionGroups);
-    touchMenu(db);
-  })();
+    await saveOptionGroups(q, id, input.optionGroups);
+    await touchMenu(q);
+  });
 }
 
-export function patchItem(db: DB, id: number, patch: ItemPatch, now: Date): void {
+export async function patchItem(q: Queryable, id: number, patch: ItemPatch, now: Date): Promise<void> {
   const sets: string[] = [];
   const params: unknown[] = [];
   if (patch.available !== undefined) (sets.push('available = ?'), params.push(patch.available ? 1 : 0));
@@ -366,48 +367,55 @@ export function patchItem(db: DB, id: number, patch: ItemPatch, now: Date): void
   if (patch.isSpecial !== undefined) (sets.push('is_special = ?'), params.push(patch.isSpecial ? 1 : 0));
   if (patch.priceCents !== undefined) (sets.push('price_cents = ?'), params.push(patch.priceCents));
   if (sets.length === 0) return;
-  const res = db
-    .prepare(`UPDATE menu_items SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`)
-    .run(...params, now.toISOString(), id);
-  if (res.changes === 0) throw notFound('Menu item');
-  touchMenu(db);
+  const changes = await q.run(`UPDATE menu_items SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`, [
+    ...params,
+    now.toISOString(),
+    rowId(id),
+  ]);
+  if (changes === 0) throw notFound('Menu item');
+  await touchMenu(q);
 }
 
-export function deleteItem(db: DB, id: number): string | null {
-  const image = getItemImage(db, id);
-  if (image === undefined) throw notFound('Menu item');
-  db.prepare('DELETE FROM menu_items WHERE id = ?').run(id);
-  touchMenu(db);
-  return image;
+/** Deletes a dish; returns its photo key (null if it had none). */
+export async function deleteItem(db: Db | Queryable, id: number): Promise<string | null> {
+  return atomically(db, MENU_LOCK, async (q) => {
+    const row = await q.one<{ image: string | null }>('DELETE FROM menu_items WHERE id = ? RETURNING image', [rowId(id)]);
+    if (!row) throw notFound('Menu item');
+    await touchMenu(q);
+    return row.image;
+  });
 }
 
-export function reorderItems(db: DB, ids: number[]): void {
-  const stmt = db.prepare('UPDATE menu_items SET sort_order = ? WHERE id = ?');
-  db.transaction(() => ids.forEach((id, i) => stmt.run(i + 1, id)))();
-  touchMenu(db);
+export async function reorderItems(db: Db | Queryable, ids: number[]): Promise<void> {
+  await atomically(db, null, async (q) => {
+    for (const [i, id] of ids.entries()) await q.run('UPDATE menu_items SET sort_order = ? WHERE id = ?', [i + 1, rowId(id)]);
+    await touchMenu(q);
+  });
 }
 
-export function imageInUse(db: DB, image: string): boolean {
-  return !!db.prepare('SELECT 1 FROM menu_items WHERE image = ? LIMIT 1').get(image);
+export async function imageInUse(q: Queryable, image: string): Promise<boolean> {
+  return !!(await q.one('SELECT 1 FROM menu_items WHERE image = ? LIMIT 1', [image]));
 }
 
 /** Removes every dish/category that came from the sample (demo) menu; returns their photo keys. */
-export function deleteDemoMenu(db: DB): string[] {
-  return db.transaction(() => {
-    const images = (db.prepare('SELECT image FROM menu_items WHERE is_demo = 1 AND image IS NOT NULL').all() as { image: string }[]).map(
+export async function deleteDemoMenu(db: Db | Queryable): Promise<string[]> {
+  return atomically(db, MENU_LOCK, async (q) => {
+    const images = (await q.many<{ image: string }>('SELECT image FROM menu_items WHERE is_demo = 1 AND image IS NOT NULL')).map(
       (r) => r.image,
     );
-    db.prepare('DELETE FROM menu_items WHERE is_demo = 1').run();
-    db.prepare(
+    await q.run('DELETE FROM menu_items WHERE is_demo = 1');
+    await q.run(
       'DELETE FROM menu_categories WHERE is_demo = 1 AND NOT EXISTS (SELECT 1 FROM menu_items WHERE category_id = menu_categories.id)',
-    ).run();
-    db.prepare('UPDATE menu_categories SET is_demo = 0').run();
-    setFlag(db, 'demo_menu', false);
-    touchMenu(db);
-    return images.filter((image) => !imageInUse(db, image));
-  })();
+    );
+    await q.run('UPDATE menu_categories SET is_demo = 0');
+    await setFlag(q, 'demo_menu', false);
+    await touchMenu(q);
+    const unused: string[] = [];
+    for (const image of images) if (!(await imageInUse(q, image))) unused.push(image);
+    return unused;
+  });
 }
 
-export function markCategoryDemo(db: DB, id: number): void {
-  db.prepare('UPDATE menu_categories SET is_demo = 1 WHERE id = ?').run(id);
+export async function markCategoryDemo(q: Queryable, id: number): Promise<void> {
+  await q.run('UPDATE menu_categories SET is_demo = 1 WHERE id = ?', [rowId(id)]);
 }

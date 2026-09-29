@@ -15,3 +15,5 @@ tests/.tmp/
 # Generated from content/photos by `npm run photos`
 public/photos/
 src/generated/
+# Vercel CLI (vercel link / env pull)
+.vercel/

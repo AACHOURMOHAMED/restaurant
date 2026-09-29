@@ -1,10 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
-import type { StaffMe } from '../shared/api-types';
-import type { StaffRole } from '../shared/constants';
-import type { AppContext } from './context';
-import { AppError, badRequest } from './errors';
-import { getSessionUser } from './services/auth';
+import type { StaffMe } from '../shared/api-types.js';
+import type { StaffRole } from '../shared/constants.js';
+import type { AppContext } from './context.js';
+import { AppError, badRequest } from './errors.js';
+import { getSessionUser } from './services/auth.js';
 
 export const STAFF_COOKIE = 'bb_staff';
 
@@ -23,7 +23,7 @@ export function parse<S extends z.ZodType>(schema: S, data: unknown): z.output<S
 
 export function idParam(req: FastifyRequest): number {
   const id = Number((req.params as { id?: string }).id);
-  if (!Number.isInteger(id) || id <= 0) throw badRequest('VALIDATION', 'Invalid id');
+  if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647) throw badRequest('VALIDATION', 'Invalid id');
   return id;
 }
 
@@ -61,7 +61,7 @@ export function isSameOrigin(req: FastifyRequest, publicUrl: string | null): boo
 export function staffGuard(ctx: AppContext, role?: StaffRole) {
   return async (req: FastifyRequest, _reply: FastifyReply) => {
     const token = req.cookies[STAFF_COOKIE];
-    const user = getSessionUser(ctx.db, token, ctx.config.sessionTtlMs, ctx.clock.now());
+    const user = await getSessionUser(ctx.db, token, ctx.config.sessionTtlMs, ctx.clock.now());
     if (!user) throw new AppError(401, 'UNAUTHORIZED', 'Please sign in');
     if (req.method !== 'GET' && req.method !== 'HEAD' && !isSameOrigin(req, ctx.config.publicUrl)) {
       throw new AppError(403, 'CSRF', 'Cross-site request refused');

@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api';
 import { telHref } from '@/lib/format';
 import { observeHeaderHeight, scrollToId } from '@/lib/motion';
 import { useSite } from '@/lib/queries';
+import { openingHoursSpecification } from '@shared/opening-hours';
 
 const SECTIONS = [
   { id: 'menu', key: 'menu' },
@@ -382,10 +383,31 @@ function Footer() {
   );
 }
 
+/**
+ * Keeps the page's structured data (schema.org, read by search engines) in line with the opening
+ * hours saved in the dashboard: where pages are static files (Vercel), their <head> was written at
+ * build time with the default hours.
+ */
+function useStructuredDataHours() {
+  const hours = useSite().data?.hours;
+  useEffect(() => {
+    const script = document.querySelector<HTMLScriptElement>('script[type="application/ld+json"]');
+    if (!hours || !script) return;
+    try {
+      const data = JSON.parse(script.textContent ?? '') as Record<string, unknown>;
+      data.openingHoursSpecification = openingHoursSpecification(hours);
+      script.textContent = JSON.stringify(data).replace(/</g, '\\u003c');
+    } catch {
+      // Leave the build-time version.
+    }
+  }, [hours]);
+}
+
 export function SiteLayout() {
   const { t } = useI18n();
   const { pathname } = useLocation();
   const isHome = pathname === '/';
+  useStructuredDataHours();
   return (
     <>
       <a

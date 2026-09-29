@@ -4,12 +4,6 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
-# Compilers are only used if a native module (better-sqlite3, sharp) has no
-# prebuilt binary for this platform. They do not end up in the final image.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-
 COPY package.json package-lock.json ./
 RUN npm ci
 

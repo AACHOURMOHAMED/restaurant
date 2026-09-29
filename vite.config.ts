@@ -6,14 +6,23 @@ import { restaurant } from './content/restaurant';
 import type { WeeklyHours } from './shared/availability';
 import { injectHead, renderHead } from './server/seo';
 
-/** Fills the <head> with SEO tags at build time (the server refreshes them at runtime). */
+/** PUBLIC_URL, or on Vercel the project's production address (same rule as server/config.ts). */
+function publicUrl(): string | null {
+  const url = process.env.PUBLIC_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`);
+  return url ? url.replace(/\/+$/, '') : null;
+}
+
+/**
+ * Fills the <head> with SEO tags at build time. A long-running server refreshes them with the
+ * opening hours saved in the dashboard; on Vercel, pages are static and keep these.
+ */
 function seoHead(): Plugin {
   return {
     name: 'bbpark-seo-head',
     transformIndexHtml(html) {
       const head = renderHead({
         lang: 'fr',
-        publicUrl: process.env.PUBLIC_URL?.replace(/\/+$/, '') ?? null,
+        publicUrl: publicUrl(),
         hours: restaurant.defaultHours as WeeklyHours,
       });
       return injectHead(html, head);

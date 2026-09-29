@@ -1,0 +1,11 @@
+{
+  // The Vercel Function (api/) runs its compiled files directly on Node's ES module loader — no
+  // bundler — so every relative import needs its .js extension. NodeNext resolution checks that.
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "paths": {}
+  },
+  "include": ["api", "server", "shared", "content"]
+}

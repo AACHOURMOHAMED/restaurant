@@ -1,4 +1,4 @@
-import type { Lang } from './constants';
+import type { Lang } from './constants.js';
 
 const cache = new Map<string, Intl.NumberFormat>();
 

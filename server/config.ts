@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
+import type { DatabaseTarget } from './db.js';
 
 const bool = (fallback: boolean) =>
   z
@@ -12,7 +13,16 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATA_DIR: z.string().default('./data'),
-  DATABASE_PATH: z.string().optional(),
+  /** PostgreSQL connection string (Neon on Vercel sets it). Without it, an embedded Postgres keeps its data in DATA_DIR/pgdata. */
+  DATABASE_URL: z.string().optional(),
+  POSTGRES_URL: z.string().optional(),
+  /** Vercel Blob store for dish photos (set by Vercel when a Blob store is connected). Without it, photos go to DATA_DIR/uploads. */
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  /** Set by Vercel: the app then runs as a serverless function. */
+  VERCEL: z.string().optional(),
+  VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
+  /** Vercel Cron Jobs send it; protects /api/cron/*. */
+  CRON_SECRET: z.string().optional(),
   /** Public address of the website, e.g. https://www.bandbpark.ma — used for QR codes and SEO. */
   PUBLIC_URL: z
     .url()
@@ -43,8 +53,13 @@ export type AppConfig = {
   host: string;
   port: number;
   dataDir: string;
-  databasePath: string;
+  database: DatabaseTarget;
+  /** Vercel Blob token for dish photos; null → photos are stored in uploadsDir. */
+  blobToken: string | null;
   uploadsDir: string;
+  /** Running as a serverless function (Vercel): no long-lived connections, background timers or local files. */
+  serverless: boolean;
+  cronSecret: string | null;
   staticDir: string;
   publicUrl: string | null;
   trustProxy: boolean | number | string;
@@ -67,8 +82,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const e = parsed.data;
   const dataDir = path.resolve(e.DATA_DIR);
+  const serverless = !!e.VERCEL;
+  const databaseUrl = e.DATABASE_URL ?? e.POSTGRES_URL;
+  if (serverless && !databaseUrl) {
+    // An embedded database would live in a throwaway folder of one function instance: bookings would vanish.
+    throw new ConfigError(
+      'Invalid environment configuration:\n  DATABASE_URL: required on Vercel. Add a Postgres database (Neon) to the project from the Vercel Marketplace (Storage tab).',
+    );
+  }
+  const productionUrl = e.VERCEL_PROJECT_PRODUCTION_URL ? `https://${e.VERCEL_PROJECT_PRODUCTION_URL.replace(/\/+$/, '')}` : undefined;
+  const publicUrl = e.PUBLIC_URL ?? productionUrl;
 
-  let trustProxy: boolean | number | string = false;
+  // Vercel's edge replaces X-Forwarded-For with the visitor's address (one trusted hop).
+  let trustProxy: boolean | number | string = serverless ? 1 : false;
   if (e.TRUST_PROXY) {
     // `true` would trust every X-Forwarded-For entry, which visitors can write themselves:
     // anyone could then pose as a new IP address on each request and bypass the rate limits.
@@ -88,15 +114,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     host: e.HOST,
     port: e.PORT,
     dataDir,
-    databasePath: path.resolve(e.DATABASE_PATH ?? path.join(dataDir, 'restaurant.db')),
+    database: databaseUrl ? { url: databaseUrl } : { dir: path.join(dataDir, 'pgdata') },
+    blobToken: e.BLOB_READ_WRITE_TOKEN ?? null,
     uploadsDir: path.join(dataDir, 'uploads'),
+    serverless,
+    cronSecret: e.CRON_SECRET ?? null,
     staticDir: path.resolve(e.STATIC_DIR ?? 'dist/client'),
-    publicUrl: e.PUBLIC_URL ?? null,
+    publicUrl: publicUrl ?? null,
     trustProxy,
     // `auto`: HTTPS-only cookies (plus HSTS) in production, or whenever the public address is https.
     cookieSecure:
       e.COOKIE_SECURE === 'auto'
-        ? e.NODE_ENV === 'production' || (e.PUBLIC_URL?.startsWith('https://') ?? false)
+        ? e.NODE_ENV === 'production' || (publicUrl?.startsWith('https://') ?? false)
         : e.COOKIE_SECURE === 'true',
     sessionTtlMs: e.SESSION_TTL_HOURS * 3_600_000,
     admin:

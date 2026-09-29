@@ -1,13 +1,13 @@
-import type { BookingSettings, DayAvailability, SpecialDay, WeeklyHours } from './availability';
+import type { BookingSettings, DayAvailability, SpecialDay, WeeklyHours } from './availability.js';
 import type {
   DietaryLabel,
   Lang,
   OrderStatus,
   ReservationStatus,
   StaffRole,
-} from './constants';
-import type { OrderingSettings } from './schemas';
-import type { LocalDate } from './time';
+} from './constants.js';
+import type { OrderingSettings } from './schemas.js';
+import type { LocalDate } from './time.js';
 
 export type ApiErrorBody = {
   error: {
@@ -36,6 +36,8 @@ export type PublicSite = {
   publicUrl: string | null;
   /** True when every table number is purely numeric (guests get a number keypad). */
   numericTableNumbers: boolean;
+  /** Base URL of dish photos ('/uploads', or the photo storage's address); null before any upload. */
+  mediaBase: string | null;
 };
 
 export type MenuOptionPublic = {

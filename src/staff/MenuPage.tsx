@@ -9,6 +9,7 @@ import { Button, cn, IconButton, Notice, Sheet, Spinner, TextArea, TextField } f
 import { useToast } from '@/components/toast';
 import { useI18n } from '@/i18n';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { shrinkPhoto } from '@/lib/photo';
 import { usePrice } from '@/lib/format';
 import { staffKeys, useStaffMenu } from './api';
 import { Badge, EmptyState, PageHeader, Select, Switch, useConfirm } from './kit';
@@ -150,9 +151,12 @@ function ItemEditor({
     setUploading(true);
     try {
       const form = new FormData();
-      form.append('file', file);
+      const photo = await shrinkPhoto(file);
+      form.append('file', photo, photo === file ? file.name : 'photo.jpg');
       const res = await api<{ image: string }>('/api/staff/uploads/menu-image', { formData: form });
       setDraft((d) => ({ ...d, image: res.image }));
+      // The first photo ever stored tells the site where photos are served from.
+      void queryClient.invalidateQueries({ queryKey: ['site'] });
     } catch (err) {
       toast.show(errorMessage(t, err), 'error');
     } finally {
@@ -431,6 +435,7 @@ export default function MenuPage() {
   });
   const deleteCategory = useMutation({ mutationFn: (id: number) => api(`/api/staff/menu/categories/${id}`, { method: 'DELETE' }), onSuccess: refresh, onError });
   const removeDemo = useMutation({ mutationFn: () => api('/api/staff/menu/demo/remove', { method: 'POST' }), onSuccess: refresh, onError });
+  const loadDemo = useMutation({ mutationFn: () => api('/api/staff/menu/demo/load', { method: 'POST' }), onSuccess: refresh, onError });
 
   const move = <T extends { id: number }>(list: T[], index: number, delta: number) => {
     const ids = list.map((x) => x.id);
@@ -485,7 +490,17 @@ export default function MenuPage() {
           <Spinner label={s.loading} />
         </div>
       ) : categories.length === 0 ? (
-        <EmptyState>{s.menu.empty}</EmptyState>
+        <EmptyState>
+          {s.menu.empty}
+          {isAdmin && (
+            <span className="mt-5 flex flex-col items-center gap-2">
+              <Button variant="outline-dark" size="sm" loading={loadDemo.isPending} onClick={() => loadDemo.mutate()}>
+                {s.menu.loadDemo}
+              </Button>
+              <span className="max-w-sm text-xs text-taupe-500">{s.menu.loadDemoHint}</span>
+            </span>
+          )}
+        </EmptyState>
       ) : (
         <div className="space-y-8">
           {categories.map((c, ci) => (

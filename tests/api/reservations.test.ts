@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../../server/db';
 import { makeApp, newKey, postReservation, reservationPayload, type TestApp } from '../helpers';
 
 let t: TestApp;
@@ -79,19 +78,8 @@ describe('creating reservations', () => {
     expect(second.json().reference).toBe(first.json().reference);
     expect(second.json().statusToken).toBe(first.json().statusToken);
     // Only a fingerprint of the key is stored: a copy of the database can't rebuild status links.
-    const stored = t.ctx.db.prepare('SELECT idempotency_key AS k FROM reservations').get() as { k: string };
+    const stored = (await t.ctx.db.one<{ k: string }>('SELECT idempotency_key AS k FROM reservations'))!;
     expect(stored.k).toBe(crypto.createHash('sha256').update(key).digest('hex'));
-  });
-
-  it('upgrades existing databases: key fingerprints and comparable phone numbers', async () => {
-    await postReservation(t, reservationPayload({ phone: '+212 6 12 34 56 78' }));
-    // Put the row back in its pre-migration shape, then migrate again.
-    t.ctx.db.prepare(`UPDATE reservations SET idempotency_key = 'raw-key-000000000000', phone_digits = '212612345678'`).run();
-    t.ctx.db.prepare('DELETE FROM schema_migrations WHERE version >= 2').run();
-    migrate(t.ctx.db);
-    const row = t.ctx.db.prepare('SELECT idempotency_key AS k, phone_digits AS d FROM reservations').get() as { k: string; d: string };
-    expect(row.k).toBe(crypto.createHash('sha256').update('raw-key-000000000000').digest('hex'));
-    expect(row.d).toBe('0612345678');
   });
 
   it('requires an idempotency key', async () => {

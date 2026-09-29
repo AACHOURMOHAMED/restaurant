@@ -29,16 +29,31 @@ import { useStaffT } from './strings';
 export type StaffContext = { me: StaffMe; live: boolean; isAdmin: boolean };
 export const useStaffContext = () => useOutletContext<StaffContext>();
 
-/** Live updates from the server; returns whether the stream is connected. */
-function useStaffEvents(enabled: boolean, onEvent: (e: StaffEvent) => void): boolean {
-  const [connected, setConnected] = useState(false);
+type LiveMode = 'connecting' | 'live' | 'polling';
+
+/**
+ * Live updates from the server (Server-Sent Events). Where the server can't stream — serverless
+ * hosting answers 204, which also stops the browser from retrying — the dashboard polls instead
+ * and tries the stream again now and then.
+ */
+function useStaffEvents(enabled: boolean, onEvent: (e: StaffEvent) => void): LiveMode {
+  const [mode, setMode] = useState<LiveMode>('connecting');
+  const [attempt, setAttempt] = useState(0);
   const handler = useRef(onEvent);
   handler.current = onEvent;
   useEffect(() => {
     if (!enabled) return;
     const es = new EventSource('/api/staff/events');
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
+    let retry: number | undefined;
+    es.onopen = () => setMode('live');
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setMode('polling');
+        retry = window.setTimeout(() => setAttempt((n) => n + 1), 10 * 60_000);
+      } else {
+        setMode((m) => (m === 'polling' ? m : 'connecting'));
+      }
+    };
     es.onmessage = (e) => {
       try {
         handler.current(JSON.parse(e.data as string) as StaffEvent);
@@ -48,10 +63,10 @@ function useStaffEvents(enabled: boolean, onEvent: (e: StaffEvent) => void): boo
     };
     return () => {
       es.close();
-      setConnected(false);
+      window.clearTimeout(retry);
     };
-  }, [enabled]);
-  return connected;
+  }, [enabled, attempt]);
+  return enabled ? mode : 'connecting';
 }
 
 function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -126,7 +141,7 @@ export default function StaffApp() {
   }, [s]);
 
   const signedIn = !!me.data;
-  const live = useStaffEvents(signedIn, (event) => {
+  const liveMode = useStaffEvents(signedIn, (event) => {
     switch (event.type) {
       case 'reservation.created':
         void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
@@ -170,8 +185,33 @@ export default function StaffApp() {
     [queryClient, navigate, pathname],
   );
 
+  const live = liveMode === 'live';
   const counts = useReservationCounts(live, signedIn);
   const openOrders = useOrders('open', live, signedIn);
+
+  // Without the live stream, new orders and booking requests are spotted by comparing polls.
+  const seenOrders = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    const list = openOrders.data;
+    if (!list) return;
+    const seen = seenOrders.current;
+    seenOrders.current = new Set(list.map((o) => o.id));
+    if (live || !seen) return; // announced by the stream / first load
+    const fresh = list.filter((o) => !seen.has(o.id) && o.status === 'received');
+    for (const o of fresh) toast.show(s.orders.newOrder(o.tableNumber), 'success');
+    if (fresh.length > 0 && soundRef.current) playChime();
+  }, [openOrders.data, live, toast, s]);
+  const pendingBefore = useRef<number | null>(null);
+  useEffect(() => {
+    const pending = counts.data?.pendingUpcoming;
+    if (pending === undefined) return;
+    const before = pendingBefore.current;
+    pendingBefore.current = pending;
+    if (live || before === null || pending <= before) return;
+    void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
+    toast.show(s.res.newRequest, 'info');
+    if (soundRef.current) playChime();
+  }, [counts.data?.pendingUpcoming, live, queryClient, toast, s]);
 
   const logout = useMutation({
     mutationFn: () => api('/api/staff/logout', { method: 'POST' }),
@@ -210,8 +250,11 @@ export default function StaffApp() {
 
   const liveBadge = (
     <span className="inline-flex items-center gap-2 text-xs font-semibold" role="status">
-      <span className={cn('size-2 rounded-full', live ? 'pulse-dot bg-[#86c778]' : 'bg-terracotta-400')} aria-hidden />
-      {live ? s.live : s.reconnecting}
+      <span
+        className={cn('size-2 rounded-full', liveMode === 'connecting' ? 'bg-terracotta-400' : 'pulse-dot bg-[#86c778]')}
+        aria-hidden
+      />
+      {liveMode === 'live' ? s.live : liveMode === 'polling' ? s.autoRefresh : s.reconnecting}
     </span>
   );
   const soundButton = (

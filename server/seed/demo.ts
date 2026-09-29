@@ -9,13 +9,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MenuItemInput } from '../../shared/schemas';
-import { menuItemInputSchema } from '../../shared/schemas';
-import type { DB } from '../db';
-import { createCategory, createItem, markCategoryDemo } from '../repos/menu';
-import { setFlag, touchMenu } from '../repos/settings';
-import { createTable, listTables } from '../repos/tables';
-import { processMenuImage } from '../services/images';
+import type { MenuItemInput } from '../../shared/schemas.js';
+import { menuItemInputSchema } from '../../shared/schemas.js';
+import type { Db } from '../db.js';
+import { createCategory, createItem, markCategoryDemo, MENU_LOCK } from '../repos/menu.js';
+import { getFlag, setFlag, setMediaBase, touchMenu } from '../repos/settings.js';
+import { createTable, listTables, TABLES_LOCK } from '../repos/tables.js';
+import { deleteMenuImage, processMenuImage } from '../services/images.js';
+import type { MediaStore } from '../storage.js';
 
 type DemoItem = Omit<MenuItemInput, 'categoryId'>;
 type DemoCategory = { name: string; nameEn: string; items: DemoItem[] };
@@ -263,24 +264,28 @@ const DEMO_MENU: DemoCategory[] = [
   },
 ];
 
-export function seedDemoMenu(db: DB, now = new Date()): void {
-  db.transaction(() => {
-    for (const cat of DEMO_MENU) {
-      const categoryId = createCategory(
-        db,
-        { name: cat.name, nameEn: cat.nameEn, description: null, descriptionEn: null, visible: true },
-        now,
-      );
-      markCategoryDemo(db, categoryId);
-      for (const item of cat.items) {
-        createItem(db, menuItemInputSchema.parse({ ...item, categoryId }), now, { demo: true });
+/** Loads the sample menu in one transaction; does nothing while it is already loaded. */
+export async function seedDemoMenu(db: Db, now = new Date()): Promise<void> {
+  await db.tx(
+    async (tx) => {
+      if (await getFlag(tx, 'demo_menu')) return;
+      for (const cat of DEMO_MENU) {
+        const categoryId = await createCategory(
+          tx,
+          { name: cat.name, nameEn: cat.nameEn, description: null, descriptionEn: null, visible: true },
+          now,
+        );
+        await markCategoryDemo(tx, categoryId);
+        for (const item of cat.items) {
+          await createItem(tx, menuItemInputSchema.parse({ ...item, categoryId }), now, { demo: true });
+        }
       }
-    }
-    setFlag(db, 'demo_menu', true);
-  })();
+      await setFlag(tx, 'demo_menu', true);
+    },
+    { lock: MENU_LOCK },
+  );
 }
 
-/** Twelve sample tables so the QR and table-number flows can be tried. */
 /** "Poisson grillé du jour" → "poisson-grille-du-jour" (file name of its sample photo). */
 export const dishPhotoName = (name: string) =>
   name
@@ -292,9 +297,10 @@ export const dishPhotoName = (name: string) =>
 
 /**
  * Sample dish photos: content/photos/menu/<dish-name>.jpg (see dishPhotoName) is attached to the
- * matching sample dish that has no photo yet, through the same pipeline as dashboard uploads.
+ * matching sample dish that has no photo yet, through the same pipeline and media store as dashboard
+ * uploads. Photos are processed outside any transaction (they can take a while).
  */
-export async function attachDemoPhotos(db: DB, uploadsDir: string, dir = path.resolve('content/photos/menu')): Promise<number> {
+export async function attachDemoPhotos(db: Db, store: MediaStore, dir = path.resolve('content/photos/menu')): Promise<number> {
   if (!fs.existsSync(dir)) return 0;
   const files = new Map(
     fs
@@ -302,22 +308,39 @@ export async function attachDemoPhotos(db: DB, uploadsDir: string, dir = path.re
       .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
       .map((f) => [f.replace(/\.[^.]+$/, ''), path.join(dir, f)] as const),
   );
-  const dishes = db.prepare('SELECT id, name FROM menu_items WHERE is_demo = 1 AND image IS NULL').all() as { id: number; name: string }[];
+  const dishes = await db.many<{ id: number; name: string }>(
+    'SELECT id, name FROM menu_items WHERE is_demo = 1 AND image IS NULL ORDER BY id',
+  );
   let attached = 0;
+  let baseSaved = false;
   for (const dish of dishes) {
     const file = files.get(dishPhotoName(dish.name));
     if (!file) continue;
-    const image = await processMenuImage(fs.readFileSync(file), uploadsDir);
-    db.prepare('UPDATE menu_items SET image = ? WHERE id = ?').run(image, dish.id);
+    const { image, base } = await processMenuImage(fs.readFileSync(file), store);
+    if (!baseSaved) {
+      await setMediaBase(db, base); // before any dish shows the photo, so its URL can be built
+      baseSaved = true;
+    }
+    // Only onto a dish still without a photo: another run may have attached one meanwhile.
+    if ((await db.run('UPDATE menu_items SET image = ? WHERE id = ? AND image IS NULL', [image, dish.id])) === 0) {
+      await deleteMenuImage(image, store);
+      continue;
+    }
     attached++;
   }
-  if (attached > 0) touchMenu(db); // new ETag, so browsers fetch the menu with its photos
+  if (attached > 0) await touchMenu(db); // new ETag, so browsers fetch the menu with its photos
   return attached;
 }
 
-export function seedDemoTables(db: DB, now = new Date()): void {
-  if (listTables(db).length > 0) return;
-  for (let n = 1; n <= 12; n++) {
-    createTable(db, { number: String(n), seats: n % 3 === 0 ? 6 : n % 2 === 0 ? 4 : 2, area: null, active: true }, now);
-  }
+/** Twelve sample tables so the QR and table-number flows can be tried (only into an empty floor plan). */
+export async function seedDemoTables(db: Db, now = new Date()): Promise<void> {
+  await db.tx(
+    async (tx) => {
+      if ((await listTables(tx)).length > 0) return;
+      for (let n = 1; n <= 12; n++) {
+        await createTable(tx, { number: String(n), seats: n % 3 === 0 ? 6 : n % 2 === 0 ? 4 : 2, area: null, active: true }, now);
+      }
+    },
+    { lock: TABLES_LOCK },
+  );
 }

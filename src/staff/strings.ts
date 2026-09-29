@@ -5,6 +5,7 @@ const fr = {
   // Shell
   dashboard: 'Espace équipe',
   live: 'En direct',
+  autoRefresh: 'Actualisation auto',
   reconnecting: 'Reconnexion…',
   soundOn: 'Son activé',
   soundOff: 'Son coupé',
@@ -209,6 +210,8 @@ const fr = {
     addItem: 'Nouveau plat',
     demoNotice: 'Le menu d’exemple est chargé (plats et prix fictifs). Supprimez-le avant de saisir la vraie carte.',
     removeDemo: 'Supprimer le menu d’exemple',
+    loadDemo: 'Charger le menu d’exemple',
+    loadDemoHint: 'Pour découvrir le site avant de saisir la vraie carte : plats et prix fictifs, signalés comme tels sur le site et supprimables en un clic.',
     confirmRemoveDemo: 'Supprimer tous les plats et catégories du menu d’exemple ?',
     available: 'Disponible',
     soldOut: 'Épuisé',
@@ -338,6 +341,7 @@ export type StaffStrings = typeof fr;
 const en: StaffStrings = {
   dashboard: 'Staff area',
   live: 'Live',
+  autoRefresh: 'Auto-refresh',
   reconnecting: 'Reconnecting…',
   soundOn: 'Sound on',
   soundOff: 'Sound off',
@@ -536,6 +540,8 @@ const en: StaffStrings = {
     addItem: 'New dish',
     demoNotice: 'The sample menu is loaded (made-up dishes and prices). Remove it before entering the real menu.',
     removeDemo: 'Remove sample menu',
+    loadDemo: 'Load the sample menu',
+    loadDemoHint: 'To try the site before entering the real menu: made-up dishes and prices, labelled as such on the site and removable in one click.',
     confirmRemoveDemo: 'Remove every dish and category of the sample menu?',
     available: 'Available',
     soldOut: 'Sold out',

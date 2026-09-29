@@ -8,26 +8,28 @@
  *   npm run cli -- demo-photos         Attach sample dish photos (content/photos/menu/) to the sample menu
  *   npm run cli -- remove-demo-menu
  *   npm run cli -- purge --days 180     Erase personal data of reservations older than N days
- *   npm run cli -- backup [--out file]  Consistent copy of the database (safe while the site runs)
+ *   npm run cli -- backup [--out file]  Copy of the embedded database (stop the server first)
+ *   npm run cli -- restore --file F     Recreate the embedded database from a backup (into an empty data folder)
  *
  * In production (after `npm run build`) use `node dist/server/cli.js <command>`.
+ * With DATABASE_URL set, commands work on that PostgreSQL database (e.g. the one of a Vercel
+ * deployment, after `vercel env pull`), and dish photos go to Vercel Blob if BLOB_READ_WRITE_TOKEN is set.
  */
-import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { Writable } from 'node:stream';
-import { passwordSchema, staffUserCreateSchema } from '../shared/schemas';
-import { loadConfig } from './config';
-import { EventHub, Notifier, systemClock } from './context';
-import { openDatabase } from './db';
-import { deleteDemoMenu } from './repos/menu';
-import { getFlag } from './repos/settings';
-import { createUser, updateUser } from './services/auth';
-import { anonymizeOldReservations } from './services/reservations';
-import { attachDemoPhotos, seedDemoMenu, seedDemoTables } from './seed/demo';
-import { deleteMenuImage } from './services/images';
+import { passwordSchema, staffUserCreateSchema } from '../shared/schemas.js';
+import { createContext } from './bootstrap.js';
+import { loadConfig } from './config.js';
+import { restoreEmbedded } from './db.js';
+import { deleteDemoMenu } from './repos/menu.js';
+import { getFlag } from './repos/settings.js';
+import { createUser, updateUser } from './services/auth.js';
+import { deleteMenuImage } from './services/images.js';
+import { anonymizeOldReservations } from './services/reservations.js';
+import { attachDemoPhotos, seedDemoMenu, seedDemoTables } from './seed/demo.js';
 
-const VALUE_FLAGS = new Set(['email', 'name', 'password', 'days', 'out']);
+const VALUE_FLAGS = new Set(['email', 'name', 'password', 'days', 'out', 'file']);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -70,20 +72,33 @@ async function ask(question: string, hidden = false): Promise<string> {
 async function main() {
   const [command] = positionals();
   const config = loadConfig();
-  const db = openDatabase(config.databasePath);
+  if (command === 'restore') {
+    const file = arg('file');
+    if (!file) throw new Error('Usage: restore --file <backup.tar.gz>');
+    if (typeof config.database !== 'object' || !('dir' in config.database)) {
+      throw new Error("restore is for the embedded database. With DATABASE_URL, use your provider's restore (Neon: restore from history) or pg_restore.");
+    }
+    await restoreEmbedded(config.database.dir, path.resolve(file));
+    console.log(`Database restored into ${config.database.dir}`);
+    return;
+  }
+  const ctx = await createContext(config);
+  const { db, media } = ctx;
   const now = new Date();
+  const target = config.database;
+  const where = typeof target === 'string' ? 'in memory' : 'url' in target ? `PostgreSQL (${new URL(target.url).host})` : target.dir;
 
   switch (command) {
     case 'seed': {
       if (!process.argv.includes('--demo')) {
-        console.log('Database ready at', config.databasePath);
+        console.log('Database ready:', where);
         console.log('Add --demo to load the sample menu and sample tables.');
         break;
       }
-      if (getFlag(db, 'demo_menu')) console.log('Sample menu already loaded — skipping menu.');
-      else seedDemoMenu(db, now);
-      seedDemoTables(db, now);
-      const photos = await attachDemoPhotos(db, config.uploadsDir);
+      if (await getFlag(db, 'demo_menu')) console.log('Sample menu already loaded — skipping menu.');
+      else await seedDemoMenu(db, now);
+      await seedDemoTables(db, now);
+      const photos = media ? await attachDemoPhotos(db, media) : 0;
       if (photos > 0) console.log(`Sample dish photos attached: ${photos}`);
       console.log('Sample menu and tables loaded. Remove the sample menu later from the dashboard.');
       break;
@@ -99,7 +114,7 @@ async function main() {
     }
     case 'reset-password': {
       const email = (arg('email') ?? (await ask('E-mail: '))).toLowerCase();
-      const row = db.prepare('SELECT id FROM staff_users WHERE email = ?').get(email) as { id: number } | undefined;
+      const row = await db.one<{ id: number }>('SELECT id FROM staff_users WHERE email = ?', [email]);
       if (!row) throw new Error(`No account for ${email}`);
       const password = passwordSchema.parse(arg('password') ?? (await ask('Nouveau mot de passe: ', true)));
       await updateUser(db, row.id, { password }, -1);
@@ -107,35 +122,41 @@ async function main() {
       break;
     }
     case 'demo-photos': {
-      console.log(`Sample dish photos attached: ${await attachDemoPhotos(db, config.uploadsDir)}`);
+      if (!media) throw new Error('No photo storage: set BLOB_READ_WRITE_TOKEN (Vercel Blob).');
+      console.log(`Sample dish photos attached: ${await attachDemoPhotos(db, media)}`);
       break;
     }
     case 'remove-demo-menu': {
-      await Promise.all(deleteDemoMenu(db).map((image) => deleteMenuImage(image, config.uploadsDir)));
+      const images = await deleteDemoMenu(db);
+      if (media) await Promise.all(images.map((image) => deleteMenuImage(image, media)));
       console.log('Sample menu removed.');
       break;
     }
     case 'purge': {
       const days = Number(arg('days'));
       if (!Number.isInteger(days) || days <= 0) throw new Error('Usage: purge --days <N>');
-      const ctx = { db, config, clock: systemClock(null), events: new EventHub(), notifier: new Notifier(null, console) };
-      console.log(`Erased personal data from ${anonymizeOldReservations(ctx, days)} reservation(s).`);
+      console.log(`Erased personal data from ${await anonymizeOldReservations(ctx, days)} reservation(s).`);
       break;
     }
     case 'backup': {
+      if (!db.backup) {
+        console.log(`The database is ${where}: back it up with pg_dump, or with your provider's backups (Neon keeps a restore history).`);
+        break;
+      }
       const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-      const out = path.resolve(arg('out') ?? path.join(config.dataDir, 'backups', `restaurant-${stamp}.db`));
-      fs.mkdirSync(path.dirname(out), { recursive: true });
+      const out = path.resolve(arg('out') ?? path.join(config.dataDir, 'backups', `restaurant-${stamp}.tar.gz`));
       await db.backup(out);
       console.log(`Database copied to ${out}`);
-      console.log(`Dish photos are in ${config.uploadsDir} — back that folder up too.`);
+      if (media?.defaultBase === '/uploads') console.log(`Dish photos are in ${config.uploadsDir} — back that folder up too.`);
       break;
     }
     default:
-      console.log('Commands: seed [--demo] | create-admin | reset-password | demo-photos | remove-demo-menu | purge --days N | backup [--out file]');
+      console.log(
+        'Commands: seed [--demo] | create-admin | reset-password | demo-photos | remove-demo-menu | purge --days N | backup [--out file] | restore --file F',
+      );
       process.exitCode = command ? 1 : 0;
   }
-  db.close();
+  await db.close();
 }
 
 main().catch((err: unknown) => {

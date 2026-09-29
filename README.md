@@ -6,8 +6,10 @@ A premium, mobile-first website for **B&B Park**, restaurant in Kénitra (Morocc
 - **at-the-restaurant ordering**: scan the table's QR code or type the table number;
 - a protected **staff dashboard** for reservations, orders, tables & QR codes, menu, opening hours and booking rules.
 
-React + Tailwind CSS + GSAP on the front, a small Fastify + SQLite server behind it. Everything runs as **one
-Node.js process** with its data in **one folder** — easy to host and to back up.
+React + Tailwind CSS + GSAP on the front, a small Fastify API with **PostgreSQL** behind it. It deploys to
+**Vercel** (the site on Vercel's CDN, the API as one serverless function, a Neon Postgres database and Vercel Blob
+for dish photos), or runs as **one Node.js process** on any server with its data in **one folder** (an embedded
+PostgreSQL — nothing else to install).
 
 > [!IMPORTANT]
 > **This is a preview.** The official site bandbpark.ma could not be opened from the build environment, so the
@@ -88,7 +90,9 @@ npm run dev
 - Staff dashboard: <http://localhost:5173/staff>
 
 `npm run dev` starts the website (Vite, with instant reload) and the API server (port 3000) together. Data is
-stored in `./data/` (SQLite database + uploaded dish photos).
+stored in `./data/` (embedded PostgreSQL database in `data/pgdata/` + uploaded dish photos). Only one program can
+use that database at a time: stop `npm run dev` before running a maintenance command such as `create-admin` (you
+get a clear message otherwise). To use a PostgreSQL server instead, set `DATABASE_URL`.
 
 **Try it on a real phone** (same Wi-Fi as your computer):
 
@@ -216,18 +220,72 @@ Open `/staff` and sign in. Two roles:
 
 ## Deploying
 
-What you need: a small Linux server (VPS) or any host that runs Docker **with a persistent disk**, a domain name, and
-**HTTPS** (required by the in-site camera scanner and for secure staff sessions). Because it stores data in SQLite,
-run **one** instance — it comfortably handles a restaurant's traffic. Serverless platforms (Vercel functions,
-Netlify…) are not suitable.
+Two ways, same code:
 
-### Option A — Docker Compose (recommended)
+- **Vercel** (option A) — nothing to maintain: the website is served from Vercel's CDN, the API runs as a
+  serverless function, the data lives in a managed PostgreSQL database (Neon) and dish photos in Vercel Blob.
+- **Your own server** (options B and C) — a small Linux server (VPS) or any host that runs Docker **with a
+  persistent disk**; one process holds everything, with the data in one folder.
+
+Either way you need a domain name and **HTTPS** (required by the in-site camera scanner and for secure staff
+sessions) — Vercel provides HTTPS automatically.
+
+### Option A — Vercel
+
+1. **Import the project.** On [vercel.com](https://vercel.com): *Add New… → Project*, then import this GitHub
+   repository. Keep the detected settings — [`vercel.json`](vercel.json) sets the build command
+   (`npm run build:vercel`), the output folder and everything else. Click **Deploy**. The website appears; the API
+   answers "not ready" until the database is connected (next step).
+2. **Database.** In the project: *Storage → Create Database → **Neon*** (Postgres, from the Vercel Marketplace).
+   Choose the region **Frankfurt (eu-central-1)** — the API runs in Frankfurt too (`regions` in `vercel.json`,
+   the closest to Morocco) — and connect it to the project. This sets `DATABASE_URL`. The tables are created
+   automatically on the first request.
+3. **Photo storage.** *Storage → Create → **Blob***, with **public** access, connected to the project. This sets
+   `BLOB_READ_WRITE_TOKEN`. (Without it everything works except uploading dish photos.)
+4. **Environment variables** (*Settings → Environment Variables*):
+   - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (10+ characters): the first administrator, created automatically;
+   - `CRON_SECRET`: any long random text (e.g. the output of `openssl rand -hex 24`). Vercel sends it to the
+     daily clean-up job, and nobody else can trigger it;
+   - optional: `PUBLIC_URL`, `RETENTION_DAYS`, `NOTIFY_WEBHOOK_URL` (see [Configuration](#configuration-environment-variables)).
+5. **Redeploy** (*Deployments → … → Redeploy*) so the variables apply. Sign in at `https://<your-project>.vercel.app/staff`.
+   To try every flow before entering the real menu, press **Charger le menu d'exemple** in *Carte*.
+6. **Domain.** *Settings → Domains*: add `bandbpark.ma` (and `www.`) and follow the DNS instructions. QR codes and
+   search-engine tags use the project's production domain — your own domain once it is added. Set `PUBLIC_URL`
+   to it explicitly before printing the QR codes, then redeploy.
+
+What is different on Vercel:
+
+- **Staff dashboard**: serverless functions can't keep a live connection open, so the dashboard **polls** — open
+  orders every 5 seconds, still with the chime for new orders and booking requests. The badge reads
+  *Actualisation auto* instead of *En direct*.
+- **Scheduled clean-up** (erasing old personal data with `RETENTION_DAYS`, expired sessions) runs every night at
+  03:17 UTC through Vercel Cron (`crons` in `vercel.json`).
+- **Dish photos** are resized in the browser before upload (Vercel accepts requests up to 4.5 MB) and served from
+  the Blob CDN.
+- **Pages are static files**: their search-engine data carries the default opening hours from
+  `content/restaurant.ts` and is updated in the browser from the hours saved in the dashboard.
+- **Maintenance commands** run from your computer against the production database:
+
+  ```bash
+  npx vercel link                                                    # once
+  npx vercel env pull .env.production.local --environment=production
+  node --env-file=.env.production.local --import tsx server/cli.ts reset-password --email chef@example.com
+  ```
+
+  `.env.production.local` contains the database password: it is ignored by git — delete it when you're done.
+- **Plan and costs**: Vercel's free *Hobby* plan is for non-commercial use, so a restaurant's site belongs on
+  *Pro*. An open dashboard polls the API all day, which keeps the database awake: check the compute allowance of
+  your Neon plan.
+
+### Option B — Docker Compose (your own server)
 
 ```bash
 cp .env.example .env          # set PUBLIC_URL, ADMIN_EMAIL, ADMIN_PASSWORD (see below)
 docker compose up -d --build
-docker compose exec restaurant node dist/server/cli.js seed --demo   # optional sample data
 ```
+
+For sample data, sign in and press **Charger le menu d'exemple** in *Carte* (or, with the app stopped:
+`docker compose run --rm restaurant node dist/server/cli.js seed --demo`).
 
 The app listens on `127.0.0.1:3000`; put an HTTPS reverse proxy in front. With [Caddy](https://caddyserver.com/)
 (automatic certificates), the whole configuration is:
@@ -241,7 +299,7 @@ bandbpark.ma, www.bandbpark.ma {
 …and add `TRUST_PROXY=1` to `.env` (the number of proxies in front of the app: 2 if Cloudflare also sits in front). With nginx, use `proxy_pass http://127.0.0.1:3000;` plus the usual
 `X-Forwarded-*` headers (the live dashboard stream already disables nginx buffering).
 
-### Option B — Node.js directly
+### Option C — Node.js directly
 
 ```bash
 npm ci
@@ -251,12 +309,13 @@ npm start              # reads .env; keep it running with systemd, pm2, etc.
 ```
 
 Only `dist/`, `node_modules/` (production dependencies) and `package.json` are needed at run time. The database is
-created and migrated automatically on start-up.
+created and migrated automatically on start-up — the embedded one in `DATA_DIR/pgdata`, or the PostgreSQL server
+named by `DATABASE_URL`.
 
 ### After the first deployment
 
 1. Sign in at `https://<your-domain>/staff` with `ADMIN_EMAIL` / `ADMIN_PASSWORD` (then you may remove the password
-   from `.env`), and create accounts for the team in *Équipe*.
+   from `.env` or from Vercel's settings), and create accounts for the team in *Équipe*.
 2. Enter the real menu, hours and tables; remove the sample menu.
 3. **Check that `PUBLIC_URL` is right, then print the QR codes** (*Tables & QR → Imprimer les QR codes*).
 4. Point the Google Business Profile "Réserver" link and Instagram/Facebook bio to `https://<your-domain>/reservation`.
@@ -267,12 +326,14 @@ All optional. Copy [`.env.example`](.env.example) to `.env`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PUBLIC_URL` | — | Public address, e.g. `https://www.bandbpark.ma`. Used in QR codes, links and SEO. **Set before printing QR codes.** |
-| `DATA_DIR` | `./data` | Database, uploaded photos, backups |
-| `DATABASE_PATH` | `$DATA_DIR/restaurant.db` | Override the database file |
+| `PUBLIC_URL` | — (on Vercel: the project's production domain) | Public address, e.g. `https://www.bandbpark.ma`. Used in QR codes, links and SEO. **Set before printing QR codes.** |
+| `DATA_DIR` | `./data` | Embedded database (`pgdata/`), uploaded photos, backups |
+| `DATABASE_URL` | — | PostgreSQL connection string. Set automatically on Vercel when a Neon database is connected (`POSTGRES_URL` is accepted too). Without it, the embedded database in `DATA_DIR` is used — except on Vercel, where it is required |
+| `BLOB_READ_WRITE_TOKEN` | — | Vercel Blob store for dish photos (set automatically when a Blob store is connected). Without it, photos are stored in `DATA_DIR/uploads` — on Vercel, photo uploads are then unavailable |
+| `CRON_SECRET` | — | Vercel only: protects the daily clean-up job (`/api/cron/daily`) |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Where the server listens |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | — | Creates the first administrator when no staff account exists |
-| `TRUST_PROXY` | off | Behind a reverse proxy: the **number** of proxies (usually `1`) or their IP addresses. `true` is refused: it would let visitors fake their address and slip past the rate limits |
+| `TRUST_PROXY` | off (`1` on Vercel) | Behind a reverse proxy: the **number** of proxies (usually `1`) or their IP addresses. `true` is refused: it would let visitors fake their address and slip past the rate limits |
 | `COOKIE_SECURE` | `auto` | `auto` = HTTPS-only cookies, HSTS and HTTPS upgrades in production (the default for `npm start` and Docker) or when `PUBLIC_URL` is https. `false` only for testing over plain HTTP |
 | `SESSION_TTL_HOURS` | `168` | Staff sessions expire after 7 days |
 | `NOTIFY_WEBHOOK_URL` | — | See [Notifications](#notifications-and-integrations) |
@@ -282,25 +343,31 @@ All optional. Copy [`.env.example`](.env.example) to `.env`.
 
 ## Backups, updates and maintenance commands
 
-Everything lives in the data folder (`./data`, or the `restaurant-data` Docker volume): the database
-(`restaurant.db`) and dish photos (`uploads/`).
+**On Vercel**, the database is managed by Neon, which keeps a restore history (point-in-time restore from its
+console); for your own copies use `pg_dump "$DATABASE_URL"`. Dish photos are in the Blob store.
+
+**On your own server**, everything lives in the data folder (`./data`, or the `restaurant-data` Docker volume):
+the embedded database (`pgdata/`) and dish photos (`uploads/`). The embedded database can only be opened by one
+program at a time, so **stop the app first**:
 
 ```bash
 # Docker
-docker compose exec restaurant node dist/server/cli.js backup           # consistent copy, safe while running
-docker compose cp restaurant:/app/data/backups ./backups                 # copy backups off the container
+docker compose stop restaurant
+docker compose run --rm restaurant node dist/server/cli.js backup     # → /app/data/backups/restaurant-<date>.tar.gz
+docker compose start restaurant
+docker compose cp restaurant:/app/data/backups ./backups              # copy backups off the server
 docker compose cp restaurant:/app/data/uploads ./backups/uploads
 
-# Without Docker
-node --env-file=.env dist/server/cli.js backup                           # → data/backups/restaurant-<date>.db
+# Without Docker (app stopped)
+node --env-file=.env dist/server/cli.js backup                        # → data/backups/restaurant-<date>.tar.gz
 ```
 
 Keep backups somewhere else (another machine or cloud storage). They contain guests' personal data — store them
-securely. **Restore**: stop the app, replace `restaurant.db` with the backup (delete any `restaurant.db-wal` /
-`-shm` next to it), start again.
+securely. **Restore**: stop the app, move the `pgdata` folder aside, run `restore --file <backup>`, start again.
 
-**Update** to a new version: `git pull && docker compose up -d --build` (or `npm ci && npm run build` and restart).
-Database migrations run automatically.
+**Update** to a new version: on Vercel, push to GitHub (each push deploys); otherwise
+`git pull && docker compose up -d --build` (or `npm ci && npm run build` and restart). Database migrations run
+automatically.
 
 | Command (`node dist/server/cli.js …` in production, `npm run cli -- …` in development) | |
 | --- | --- |
@@ -309,12 +376,14 @@ Database migrations run automatically.
 | `seed --demo` | Load the sample menu and 12 sample tables |
 | `remove-demo-menu` | Delete the sample menu (also a button in the dashboard) |
 | `purge --days N` | Erase personal data from reservations older than N days |
-| `backup [--out file]` | Consistent copy of the database |
+| `demo-photos` | Attach the photos in `content/photos/menu/` to the sample dishes |
+| `backup [--out file]` | Copy of the embedded database (app stopped) |
+| `restore --file …` | Recreate the embedded database from a backup, into an empty data folder |
 
 ## Notifications and integrations
 
-**Built in** — the staff dashboard updates live (Server-Sent Events, with automatic fallback to polling) and can
-chime for new orders and reservations.
+**Built in** — the staff dashboard updates live (Server-Sent Events; on Vercel, and whenever the live connection
+fails, it polls every few seconds instead) and can chime for new orders and reservations.
 
 **Webhook** — set `NOTIFY_WEBHOOK_URL` and the server POSTs a small JSON message for each event. Connect it to Make,
 Zapier, n8n or a chat tool to alert the team's phones:
@@ -362,6 +431,7 @@ sent**: staff open the dashboard for details.
 ```bash
 npm run typecheck
 npm test              # unit + API tests (availability, time zones, pricing, reservations, orders, staff rules)
+TEST_DATABASE_URL=postgres://user:password@localhost:5432/test npm test   # the same tests on a PostgreSQL server
 npx playwright install chromium   # first time only
 npm run test:e2e      # browser tests on phone and desktop sizes
 ```
@@ -390,7 +460,8 @@ src/                   React website
   dinein/              at-the-restaurant flow: table entry, QR scanner, ordering, order status
   staff/               staff dashboard
   i18n/                French and English texts
-server/                Fastify API: routes, services (reservations, orders, auth), SQLite, CLI
+server/                Fastify API: routes, services (reservations, orders, auth), PostgreSQL, CLI
+api/                   Vercel Function entry (all /api requests) — see vercel.json
 shared/                code used by both sides: validation, availability, pricing, time zones
 tests/                 unit, API (tests/api) and browser tests (tests/e2e)
 scripts/               photo optimisation, compression, server bundling
@@ -403,6 +474,9 @@ scripts/               photo optimisation, compression, server bundling
 | Staff sign-in doesn't stick | Production mode requires HTTPS. For a quick test over plain HTTP set `COOKIE_SECURE=false` (never on the real site). |
 | QR codes open the wrong address | Set `PUBLIC_URL`, restart, then download/print the QR codes again. A warning appears in *Tables & QR* while it's missing. |
 | The in-site scanner doesn't open the camera | It needs HTTPS and the guest's permission; entering the table number always works, as does the phone's camera app. |
-| Dashboard doesn't update live | Check that your proxy doesn't buffer `/api/staff/events`; meanwhile the dashboard still refreshes every 15–30 seconds. |
+| Dashboard doesn't update live | On Vercel this is expected: it refreshes every few seconds (*Actualisation auto*). On your own server, check that your proxy doesn't buffer `/api/staff/events`; meanwhile the dashboard still refreshes every few seconds. |
+| Vercel: the API answers 503 "not ready" | Open the deployment's *Logs*: usually `DATABASE_URL` is missing — connect the Neon database (Storage tab), then redeploy. |
+| Vercel: "Photo storage is not set up" when uploading | Connect a **public** Blob store to the project (Storage tab), then redeploy. |
+| "The database … is being used by another process" | The embedded database is open in the running app: stop it before running a maintenance command (or use `DATABASE_URL`). |
 | "No staff account exists yet" in the logs | Set `ADMIN_EMAIL` / `ADMIN_PASSWORD` or run the `create-admin` command. |
 | Forgot a password | `reset-password --email …` (see [commands](#backups-updates-and-maintenance-commands)). |
