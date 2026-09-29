@@ -8,6 +8,10 @@ import { rangesAreValid } from './availability';
 import { DIETARY_LABELS, LANGS, LIMITS, ORDER_STATUSES, RESERVATION_STATUSES, STAFF_ROLES } from './constants';
 import { isValidDateString, isValidTimeString, isValidTimeZone } from './time';
 
+// The site's Content-Security-Policy forbids eval, so tell zod not to probe for it in the
+// browser (the probe is harmless but logs a CSP violation). Must run before any z.object().
+if (typeof window !== 'undefined') z.config({ jitless: true });
+
 /** Accepts local ("06 12 34 56 78") and international ("+212 6 12 34 56 78") formats. */
 export function isPlausiblePhone(value: string): boolean {
   const trimmed = value.trim();

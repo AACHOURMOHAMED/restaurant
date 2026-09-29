@@ -16,6 +16,8 @@ type Props = {
   onAdd?: (item: MenuItemPublic, optionIds: number[], quantity: number, note: string) => void;
   /** Quick "+" on a dish without options. */
   onQuickAdd?: (item: MenuItemPublic) => void;
+  /** Heading level of category titles (dish names use the next level). */
+  headingLevel?: 2 | 3;
 };
 
 function DishRow({
@@ -24,31 +26,27 @@ function DishRow({
   mode,
   onOpen,
   onQuickAdd,
+  headingLevel,
 }: {
   item: MenuItemPublic;
   icon: PlaceholderIcon;
   mode: 'browse' | 'order';
   onOpen: () => void;
   onQuickAdd?: () => void;
+  headingLevel: 3 | 4;
 }) {
+  const DishHeading = headingLevel === 3 ? 'h3' : 'h4';
   const { t, pick } = useI18n();
   const price = usePrice();
   const name = pick(item.name, item.nameEn);
   const description = pick(item.description ?? '', item.descriptionEn);
   const needsChoice = item.optionGroups.some((g) => g.minSelect > 0);
 
+  // The whole row opens the dish through the name button's ::after overlay: the button is named
+  // by the dish alone, and the heading, price and dietary list stay readable on their own.
   return (
-    <li className="dish-row relative">
-      <button
-        type="button"
-        onClick={onOpen}
-        className={cn(
-          'group flex w-full gap-4 rounded-3xl p-2.5 text-left transition-colors duration-300 hover:bg-white/70 sm:gap-5 sm:p-3',
-          mode === 'order' && 'pr-16 sm:pr-16',
-          !item.available && 'opacity-55',
-        )}
-        aria-label={`${name}, ${price(item.priceCents)}${item.available ? '' : `, ${t.menu.soldOut}`}`}
-      >
+    <li className="dish-row group relative rounded-3xl transition-colors duration-300 hover:bg-white/70">
+      <div className={cn('flex gap-4 p-2.5 sm:gap-5 sm:p-3', mode === 'order' && 'pr-16 sm:pr-16', !item.available && 'opacity-55')}>
         <div className="relative size-20 shrink-0 overflow-hidden rounded-2xl bg-ink-800 sm:size-24">
           <DishImage
             image={item.image}
@@ -59,13 +57,22 @@ function DishRow({
           />
           {item.isSpecial && (
             <span className="absolute top-1.5 left-1.5 flex size-6 items-center justify-center rounded-full bg-gold-400 text-ink-950 shadow-soft">
-              <Star className="size-3 fill-current" aria-label={t.menu.special} />
+              <Star className="size-3 fill-current" aria-hidden />
+              <span className="sr-only">{t.menu.special}</span>
             </span>
           )}
         </div>
         <div className="min-w-0 flex-1 py-0.5">
           <div className="flex items-baseline gap-3">
-            <h4 className="font-display text-[1.3rem] leading-tight font-semibold text-ink-900 sm:text-[1.4rem]">{name}</h4>
+            <DishHeading className="font-display text-[1.3rem] leading-tight font-semibold text-ink-900 sm:text-[1.4rem]">
+              <button
+                type="button"
+                onClick={onOpen}
+                className="text-left outline-none after:absolute after:inset-0 after:rounded-3xl focus-visible:after:ring-2 focus-visible:after:ring-gold-500"
+              >
+                {name}
+              </button>
+            </DishHeading>
             <span className="leader hidden text-taupe-400 sm:block" aria-hidden />
             <span className="ml-auto shrink-0 text-[15px] font-semibold text-ink-800 tabular">{price(item.priceCents)}</span>
           </div>
@@ -79,13 +86,13 @@ function DishRow({
             )}
           </div>
         </div>
-      </button>
+      </div>
       {mode === 'order' && item.available && (
         <button
           type="button"
           onClick={needsChoice || !onQuickAdd ? onOpen : onQuickAdd}
           aria-label={`${t.order.add} ${name}`}
-          className="absolute top-1/2 right-3 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink-900 text-cream-50 shadow-soft transition-transform active:scale-90"
+          className="absolute top-1/2 right-3 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink-900 text-cream-50 shadow-soft transition-transform active:scale-90"
         >
           <Plus className="size-5" />
         </button>
@@ -94,7 +101,8 @@ function DishRow({
   );
 }
 
-export function MenuBrowser({ categories, mode, onAdd, onQuickAdd }: Props) {
+export function MenuBrowser({ categories, mode, onAdd, onQuickAdd, headingLevel = 3 }: Props) {
+  const CategoryHeading = headingLevel === 2 ? 'h2' : 'h3';
   const { t, pick } = useI18n();
   const [categoryId, setCategoryId] = useState<number | 'all'>('all');
   const [filters, setFilters] = useState<MenuFilter[]>([]);
@@ -244,9 +252,9 @@ export function MenuBrowser({ categories, mode, onAdd, onQuickAdd }: Props) {
           return (
             <section key={c.id} aria-labelledby={`cat-${c.id}`}>
               <div className="flex items-end justify-between gap-4 border-b border-ink-900/10 pb-3">
-                <h3 id={`cat-${c.id}`} className="font-display text-3xl font-medium text-ink-900 md:text-[2.4rem]">
+                <CategoryHeading id={`cat-${c.id}`} className="font-display text-3xl font-medium text-ink-900 md:text-[2.4rem]">
                   {pick(c.name, c.nameEn)}
-                </h3>
+                </CategoryHeading>
                 <span className="pb-1.5 text-xs font-semibold tracking-[0.18em] text-taupe-500 uppercase">
                   {t.menu.dishCount(c.items.length)}
                 </span>
@@ -261,6 +269,7 @@ export function MenuBrowser({ categories, mode, onAdd, onQuickAdd }: Props) {
                     mode={mode}
                     onOpen={() => setSelected({ item, icon })}
                     onQuickAdd={onQuickAdd ? () => onQuickAdd(item) : undefined}
+                    headingLevel={headingLevel === 2 ? 3 : 4}
                   />
                 ))}
               </ul>

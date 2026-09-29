@@ -21,10 +21,31 @@ function seoHead(): Plugin {
   };
 }
 
+/** Preloads the fonts of the hero title and body text so the first screen renders sooner. */
+function preloadFonts(): Plugin {
+  return {
+    name: 'bbpark-preload-fonts',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        const fonts = Object.keys(ctx.bundle ?? {}).filter((f) =>
+          /(cormorant-garamond-latin-wght-(normal|italic)|manrope-latin-wght-normal)-[\w-]+\.woff2$/.test(f),
+        );
+        return fonts.map((f) => ({
+          tag: 'link',
+          attrs: { rel: 'preload', as: 'font', type: 'font/woff2', href: `/${f}`, crossorigin: '' },
+          injectTo: 'head' as const,
+        }));
+      },
+    },
+  };
+}
+
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), seoHead()],
+  plugins: [react(), tailwindcss(), seoHead(), preloadFonts()],
   resolve: {
     alias: {
       '@': r('./src'),

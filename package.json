@@ -12,7 +12,7 @@
     "dev": "concurrently -k -n api,web -c yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch --clear-screen=false server/index.ts",
     "dev:web": "vite",
-    "build": "npm run photos && vite build && node scripts/build-server.mjs",
+    "build": "npm run photos && vite build && node scripts/precompress.mjs && node scripts/build-server.mjs",
     "start": "node dist/server/index.js",
     "photos": "tsx scripts/optimize-photos.ts",
     "cli": "tsx server/cli.ts",
@@ -25,6 +25,7 @@
     "check": "npm run typecheck && npm run test"
   },
   "dependencies": {
+    "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.1.2",
     "@fastify/helmet": "^13.1.1",
     "@fastify/multipart": "^10.1.2",

@@ -100,9 +100,11 @@ export function DateStrip({
                 className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none rounded-2xl opacity-0 disabled:cursor-not-allowed"
                 aria-label={`${d.date}${d.available ? '' : ` — ${statusLabel(d.status)}`}`}
               />
-              <span className="text-[11px] font-semibold tracking-[0.12em] uppercase opacity-75">{formatWeekdayShort(d.date, locale)}</span>
+              <span className={cn('text-[11px] font-semibold tracking-[0.12em] uppercase', selected ? 'text-cream-100' : disabled ? '' : 'text-taupe-600')}>
+                {formatWeekdayShort(d.date, locale)}
+              </span>
               <span className="font-display mt-0.5 text-[1.9rem] leading-none font-semibold">{dayOfMonth(d.date)}</span>
-              <span className={cn('mt-1 text-[11px] font-medium', newMonth ? 'opacity-90' : 'opacity-55')}>
+              <span className={cn('mt-1 text-[11px] font-medium', selected ? 'text-cream-100' : disabled ? '' : newMonth ? 'text-ink-700' : 'text-taupe-600')}>
                 {d.available ? formatMonthShort(d.date, locale) : statusLabel(d.status)}
               </span>
             </label>
@@ -140,7 +142,7 @@ export function TimeSlots({
   const noneAvailable = day && !day.slots.some((s) => s.available);
 
   return (
-    <fieldset className="min-w-0" aria-describedby={error ? `${name}-error` : undefined}>
+    <fieldset className={cn('min-w-0', !day && 'min-h-[15rem]')} aria-describedby={error ? `${name}-error` : undefined}>
       <legend className="sr-only">{t.reserve.time}</legend>
       {loading && !day ? (
         <div className="text-taupe-500">

@@ -4,11 +4,15 @@ import { useOpenStatus, useSite } from '@/lib/queries';
 import { cn } from '@/components/ui';
 import { daysBetween } from '@shared/time';
 
-export function OpenStatusBadge({ className }: { className?: string }) {
+/**
+ * "Open · until 23:00" / "Closed · opens tomorrow at 12:00".
+ * `reserve` keeps an empty line in place while loading so nothing around it jumps.
+ */
+export function OpenStatusBadge({ className, reserve = false }: { className?: string; reserve?: boolean }) {
   const { t, locale } = useI18n();
   const status = useOpenStatus();
   const site = useSite();
-  if (!status || !site.data) return null;
+  if (!status || !site.data) return reserve ? <span aria-hidden className={cn('block min-h-5 sm:min-w-44', className)} /> : null;
 
   let label: string;
   if (status.open) {

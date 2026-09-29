@@ -195,8 +195,9 @@ function Header({ overlay }: { overlay: boolean }) {
         )}
       >
         <div className="container-x flex h-[4.5rem] items-center justify-between gap-6 text-cream-50">
-          <Link to="/" aria-label={`${restaurant.name} — ${t.nav.home}`} className="shrink-0">
+          <Link to="/" className="shrink-0">
             <Logo />
+            <span className="sr-only"> — {t.nav.home}</span>
           </Link>
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Navigation">
             {SECTIONS.map((s) => (

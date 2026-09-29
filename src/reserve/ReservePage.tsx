@@ -159,12 +159,14 @@ export default function ReservePage() {
     <>
       <PageHero eyebrow={restaurant.name} title={t.reserve.title}>
         <p>{t.reserve.intro}</p>
-        {booking && (
-          <p className="mt-3 inline-flex items-center gap-2 text-[15px] text-gold-300">
-            <ShieldCheck className="size-4.5" aria-hidden />
-            {booking.requireApproval ? t.reserve.approvalNote : t.reserve.instantNote}
-          </p>
-        )}
+        <p className="mt-3 inline-flex min-h-6 items-center gap-2 text-[15px] text-gold-300">
+          {booking && (
+            <>
+              <ShieldCheck className="size-4.5" aria-hidden />
+              {booking.requireApproval ? t.reserve.approvalNote : t.reserve.instantNote}
+            </>
+          )}
+        </p>
       </PageHero>
 
       <div className="container-x relative -mt-16 pb-24 md:-mt-20">
@@ -177,7 +179,8 @@ export default function ReservePage() {
             aria-label={t.reserve.title}
           >
             {site.isPending ? (
-              <div className="py-16 text-center text-taupe-500">
+              // Same footprint as the form, so nothing jumps when it appears.
+              <div className="flex min-h-[44rem] items-center justify-center text-taupe-500">
                 <Spinner label={t.common.loading} />
               </div>
             ) : unavailable ? (
@@ -209,7 +212,11 @@ export default function ReservePage() {
                     ) : calendar.isError ? (
                       <Notice tone="error">{errorMessage(t, calendar.error)}</Notice>
                     ) : (
-                      <Spinner className="text-taupe-500" label={t.reserve.loadingSlots} />
+                      <div className="flex h-[6.6rem] gap-2 overflow-hidden" aria-busy="true" aria-label={t.reserve.loadingSlots}>
+                        {Array.from({ length: 8 }, (_, i) => (
+                          <div key={i} className="w-[4.4rem] shrink-0 animate-pulse rounded-2xl bg-cream-200/70" />
+                        ))}
+                      </div>
                     )}
                     {errors.date && (
                       <p className="mt-2 text-[13px] font-medium text-terracotta-600" role="alert">
@@ -300,7 +307,7 @@ export default function ReservePage() {
 
                 <div className="flex flex-col gap-4 border-t border-cream-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
                   <p className="font-display text-xl text-ink-800" aria-live="polite">
-                    {summary ?? <span className="text-taupe-400">{t.reserve.pickDate}</span>}
+                    {summary ?? <span className="text-taupe-500">{t.reserve.pickDate}</span>}
                   </p>
                   <Button type="submit" variant="dark" size="lg" loading={mutation.isPending} className="w-full sm:w-auto">
                     {mutation.isPending

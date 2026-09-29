@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, makeApp, ORIGIN, postReservation, reservationPayload, STAFF, type TestApp } from '../helpers';
 
@@ -184,6 +187,29 @@ describe('rate limiting', () => {
       expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
     } finally {
       await limited.close();
+    }
+  });
+});
+
+describe('website pages', () => {
+  it('serves the app for page URLs (any query string) and 404s for missing files', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbpark-static-'));
+    fs.writeFileSync(path.join(dir, 'index.html'), '<html><head><!--head:start--><!--head:end--></head><body>app</body></html>');
+    const site = await makeApp({ staticDir: dir });
+    try {
+      for (const url of ['/', '/reservation', '/t/abc12345', '/?utm_source=instagram.com&fbclid=a.b']) {
+        const res = await site.app.inject({ url, headers: { 'accept-encoding': 'br' } });
+        expect(res.statusCode, url).toBe(200);
+        expect(res.headers['content-type']).toContain('text/html');
+      }
+      const html = await site.app.inject('/');
+      expect(html.body).toContain('"@type":"Restaurant"');
+      expect(html.body).toContain('"telephone":"+212537370624"');
+      expect((await site.app.inject('/assets/missing.js')).statusCode).toBe(404);
+      expect((await site.app.inject('/api/nope')).statusCode).toBe(404);
+    } finally {
+      await site.close();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

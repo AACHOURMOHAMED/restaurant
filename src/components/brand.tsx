@@ -37,7 +37,7 @@ export function Logo({ className, tone = 'light' }: { className?: string; tone?:
         className,
       )}
     >
-      <span>{first}</span>
+      <span>{first}</span>{' '}
       {rest.length > 0 && <span className="text-[0.62em] font-semibold tracking-[0.32em] text-gold-500">{rest.join(' ')}</span>}
     </span>
   );

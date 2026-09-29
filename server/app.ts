@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
+import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
@@ -70,6 +72,14 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
     reply.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=()');
   });
 
+  // Dynamic responses (API JSON, pages) are compressed on the fly with a fast setting;
+  // built assets are served pre-compressed (see scripts/precompress.mjs).
+  await app.register(compress, {
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip'],
+    brotliOptions: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 } },
+  });
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 5 } });
   if (config.rateLimit) {
@@ -125,6 +135,7 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
       index: false,
       // Register the built files as routes; every other path falls through to the page handler below.
       wildcard: false,
+      preCompressed: true,
       setHeaders: (reply, file) => {
         const immutable = file.includes(`${path.sep}assets${path.sep}`) || file.includes(`${path.sep}photos${path.sep}`);
         reply.header('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
@@ -143,17 +154,18 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
     return cached.html;
   };
 
-  app.setNotFoundHandler((req, reply) => {
-    const isPage =
-      (req.method === 'GET' || req.method === 'HEAD') &&
-      !req.url.startsWith('/api/') &&
-      !req.url.startsWith('/uploads/') &&
-      !/\.[a-z0-9]{2,5}(\?|$)/i.test(req.url);
-    if (isPage && template) {
+  // Website pages: a catch-all route (static files and API routes are more specific and win).
+  // Being a real route, its HTML is compressed like any other response.
+  if (template) {
+    app.get('/*', (req, reply) => {
+      const pathname = req.url.split('?')[0]!;
+      const isPage = !pathname.startsWith('/api/') && !pathname.startsWith('/uploads/') && !/\.[a-z0-9]{2,5}$/i.test(pathname);
+      if (!isPage) return reply.status(404).send(errorBody('NOT_FOUND', 'Not found'));
       return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').send(renderIndex());
-    }
-    return reply.status(404).send(errorBody('NOT_FOUND', 'Not found'));
-  });
+    });
+  }
+
+  app.setNotFoundHandler((_req, reply) => reply.status(404).send(errorBody('NOT_FOUND', 'Not found')));
 
   return app;
 }

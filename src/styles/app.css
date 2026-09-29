@@ -19,15 +19,15 @@
 
   --color-taupe-300: #c9b8a2;
   --color-taupe-400: #a8977f;
-  --color-taupe-500: #857563;
-  --color-taupe-600: #6a5c4d;
+  --color-taupe-500: #716251; /* ≥ 4.5:1 on every cream background */
+  --color-taupe-600: #5e5143;
 
   --color-gold-200: #f3e1bf;
   --color-gold-300: #ebcf9c;
   --color-gold-400: #deb877;
   --color-gold-500: #c79d5e;
-  --color-gold-600: #a57f45;
-  --color-gold-700: #7e6034;
+  --color-gold-600: #86673a; /* readable gold for text on light backgrounds */
+  --color-gold-700: #6f5430;
 
   --color-terracotta-400: #cf7650;
   --color-terracotta-500: #b85c38;

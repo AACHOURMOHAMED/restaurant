@@ -60,26 +60,32 @@ export function Specials() {
             const name = pick(item.name, item.nameEn);
             return (
               <li key={item.id} className={cn('w-[82%] shrink-0 snap-center sm:w-[60%] md:w-auto', i === 1 && 'md:translate-y-10')}>
-                <button
-                  type="button"
-                  onClick={() => setSelected({ item, icon })}
-                  className="group relative block w-full overflow-hidden rounded-[1.75rem] bg-ink-800 text-left ring-1 ring-cream-50/10"
-                >
-                  <div className="aspect-[4/5] overflow-hidden">
+                {/* The whole card is clickable through the title button's ::after overlay, so the button is named by the dish alone. */}
+                <div className="group relative grid overflow-hidden rounded-[1.75rem] bg-ink-800 ring-1 ring-cream-50/10">
+                  <div className="aspect-[4/5] overflow-hidden [grid-area:1/1]">
                     <DishImage
                       image={item.image}
-                      alt={name}
+                      alt=""
                       icon={icon}
                       tone={i % 2 ? 'warm' : 'dark'}
                       sizes="(min-width: 768px) 33vw, 100vw"
                       className="transition-transform duration-[1.4s] ease-(--ease-out-expo) group-hover:scale-[1.06]"
                     />
                   </div>
-                  <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-ink-950 via-ink-950/80 to-transparent p-6 pt-28">
+                  {/* z-10 lifts the text above the image without making it the overlay's containing block. */}
+                  <div className="z-10 self-end bg-linear-to-t from-ink-950 via-ink-950/80 to-transparent p-6 pt-28 [grid-area:1/1]">
                     <p className="text-[11px] font-semibold tracking-[0.22em] text-gold-400 uppercase">
                       {pick(category.name, category.nameEn)}
                     </p>
-                    <h3 className="font-display mt-2 text-[2rem] leading-[1.05] font-medium">{name}</h3>
+                    <h3 className="font-display mt-2 text-[2rem] leading-[1.05] font-medium">
+                      <button
+                        type="button"
+                        onClick={() => setSelected({ item, icon })}
+                        className="text-left outline-none after:absolute after:inset-0 after:rounded-[1.75rem] focus-visible:after:ring-2 focus-visible:after:ring-gold-400"
+                      >
+                        {name}
+                      </button>
+                    </h3>
                     {item.description && (
                       <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-cream-100/70">
                         {pick(item.description, item.descriptionEn)}
@@ -87,7 +93,7 @@ export function Specials() {
                     )}
                     <p className="mt-4 text-[15px] font-semibold text-gold-300 tabular">{price(item.priceCents)}</p>
                   </div>
-                </button>
+                </div>
               </li>
             );
           })}

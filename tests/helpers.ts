@@ -33,10 +33,11 @@ export type StaffClient = (
 /** Monday 5 October 2026, 11:00 in Kénitra (UTC+1). */
 export const DEFAULT_NOW = '2026-10-05T10:00:00Z';
 
-export async function makeApp(opts: { now?: string; rateLimit?: boolean } = {}): Promise<TestApp> {
+export async function makeApp(opts: { now?: string; rateLimit?: boolean; staticDir?: string } = {}): Promise<TestApp> {
   resetLoginThrottle();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbpark-test-'));
-  const config = { ...loadConfig({ NODE_ENV: 'test', DATA_DIR: dataDir, LOG_LEVEL: 'silent' }), rateLimit: opts.rateLimit ?? false };
+  const base = loadConfig({ NODE_ENV: 'test', DATA_DIR: dataDir, LOG_LEVEL: 'silent' });
+  const config = { ...base, rateLimit: opts.rateLimit ?? false, staticDir: opts.staticDir ?? path.join(dataDir, 'no-site') };
   const db = openDatabase(':memory:');
   let now = new Date(opts.now ?? DEFAULT_NOW);
   const ctx: AppContext = {

@@ -132,8 +132,6 @@ export default function OrderPage() {
             </ButtonLink>
           </div>
         )}
-        {site.data && !orderingEnabled && <Notice tone="warn">{t.order.orderingDisabled}</Notice>}
-        {site.data?.demoMenu && <Notice tone="warn">{t.preview.demoMenu}</Notice>}
       </div>
 
       <div className="mt-6 flex items-end justify-between gap-4">
@@ -148,7 +146,8 @@ export default function OrderPage() {
       </div>
 
       <div className="mt-4">
-        {menu.isPending ? (
+        {/* Wait for both the menu and the site settings so the notices don't push the menu down once painted. */}
+        {menu.isPending || site.isPending ? (
           <div className="flex justify-center py-20 text-taupe-500">
             <Spinner label={t.menu.loading} />
           </div>
@@ -159,15 +158,26 @@ export default function OrderPage() {
               {t.menu.retry}
             </button>
           </Notice>
-        ) : categories.length === 0 ? (
-          <p className="py-16 text-center text-taupe-600">{t.menu.empty}</p>
         ) : (
-          <MenuBrowser
-            categories={categories}
-            mode={orderingEnabled ? 'order' : 'browse'}
-            onAdd={(item, optionIds, qty, note) => addToCart(item.id, pick(item.name, item.nameEn), optionIds, qty, note)}
-            onQuickAdd={(item) => addToCart(item.id, pick(item.name, item.nameEn), defaultSelection(item), 1, '')}
-          />
+          <>
+            {site.data && (!orderingEnabled || site.data.demoMenu) && (
+              <div className="mb-6 space-y-3">
+                {!orderingEnabled && <Notice tone="warn">{t.order.orderingDisabled}</Notice>}
+                {site.data.demoMenu && <Notice tone="warn">{t.preview.demoMenu}</Notice>}
+              </div>
+            )}
+            {categories.length === 0 ? (
+              <p className="py-16 text-center text-taupe-600">{t.menu.empty}</p>
+            ) : (
+              <MenuBrowser
+                categories={categories}
+                mode={orderingEnabled ? 'order' : 'browse'}
+                headingLevel={2}
+                onAdd={(item, optionIds, qty, note) => addToCart(item.id, pick(item.name, item.nameEn), optionIds, qty, note)}
+                onQuickAdd={(item) => addToCart(item.id, pick(item.name, item.nameEn), defaultSelection(item), 1, '')}
+              />
+            )}
+          </>
         )}
       </div>
 

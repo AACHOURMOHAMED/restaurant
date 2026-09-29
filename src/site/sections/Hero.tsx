@@ -8,15 +8,18 @@ import { telHref } from '@/lib/format';
 import { gsap, MOTION_OK, scrollToId, useGSAP } from '@/lib/motion';
 import { OpenStatusBadge } from '../OpenStatusBadge';
 
-/** Candle-lit abstract backdrop used until the restaurant's hero photo is added. */
+/**
+ * Candle-lit abstract backdrop used until the restaurant's hero photo is added.
+ * The glows are positioned in viewport units (not % of the hero) so they stay put while the text loads.
+ */
 function HeroBackdrop() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-ink-950">
       <div
         data-hero-glow
-        className="absolute -top-[30%] -right-[25%] h-[110vmax] w-[110vmax] rounded-full bg-[radial-gradient(closest-side,rgba(222,184,119,0.30),rgba(184,92,56,0.12)_52%,transparent_75%)]"
+        className="absolute -top-[30svh] -right-[25vw] h-[110vmax] w-[110vmax] rounded-full bg-[radial-gradient(closest-side,rgba(222,184,119,0.30),rgba(184,92,56,0.12)_52%,transparent_75%)]"
       />
-      <div className="absolute -bottom-[45%] -left-[30%] h-[95vmax] w-[95vmax] rounded-full bg-[radial-gradient(closest-side,rgba(184,92,56,0.30),rgba(120,50,30,0.08)_55%,transparent_75%)]" />
+      <div className="absolute top-[calc(145svh_-_95vmax)] -left-[30vw] h-[95vmax] w-[95vmax] rounded-full bg-[radial-gradient(closest-side,rgba(184,92,56,0.30),rgba(120,50,30,0.08)_55%,transparent_75%)]" />
       <span
         data-hero-deco
         aria-hidden
@@ -102,8 +105,11 @@ export function Hero() {
             {t.hero.viewMenu}
           </Button>
         </div>
-        <div data-hero-fade className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-cream-50/15 pt-6 text-sm text-cream-100/75">
-          <OpenStatusBadge />
+        <div
+          data-hero-fade
+          className="mt-12 flex flex-col gap-3 border-t border-cream-50/15 pt-6 text-sm text-cream-100/75 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8"
+        >
+          <OpenStatusBadge reserve className="min-h-5" />
           <span className="inline-flex items-center gap-2">
             <MapPin className="size-4 text-gold-400" aria-hidden />
             {restaurant.address.street}, {restaurant.address.city}

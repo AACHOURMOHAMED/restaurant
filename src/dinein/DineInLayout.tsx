@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { Link, Outlet, ScrollRestoration } from 'react-router';
 import { Logo } from '@/components/brand';
 import { cn } from '@/components/ui';
@@ -13,7 +13,8 @@ export function DineInLayout() {
   const { t } = useI18n();
   const table = useTable();
   const ref = useRef<HTMLElement>(null);
-  useEffect(() => (ref.current ? observeHeaderHeight(ref.current) : undefined), []);
+  // Layout effect: the content's top padding depends on the header height, so measure it before the first paint.
+  useLayoutEffect(() => (ref.current ? observeHeaderHeight(ref.current) : undefined), []);
 
   return (
     <div className="min-h-svh bg-cream-100">
@@ -21,8 +22,9 @@ export function DineInLayout() {
         <PreviewBanner />
         <div className="border-b border-cream-50/10 bg-ink-950/92 backdrop-blur-md">
           <div className="container-x flex h-16 items-center justify-between gap-3 text-cream-50">
-            <Link to="/" aria-label={t.nav.home} className="shrink-0">
+            <Link to="/" className="shrink-0">
               <Logo className="text-[1.35rem]" />
+              <span className="sr-only"> — {t.nav.home}</span>
             </Link>
             <div className="flex items-center gap-2">
               {table && (
