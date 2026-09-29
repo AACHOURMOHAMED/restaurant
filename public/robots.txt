@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /staff
+Disallow: /api/
+Disallow: /t/
+Disallow: /order
+Allow: /

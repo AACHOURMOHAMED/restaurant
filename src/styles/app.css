@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Cormorant Garamond Variable', 'Cormorant Garamond', ui-serif, Georgia, serif;
+  --font-sans: 'Manrope Variable', 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Warm, cinematic palette */
+  --color-ink-950: #0d0907;
+  --color-ink-900: #140f0c;
+  --color-ink-800: #1c1511;
+  --color-ink-700: #281f19;
+  --color-ink-600: #3a2e25;
+  --color-ink-500: #54463b;
+
+  --color-cream-50: #fbf8f3;
+  --color-cream-100: #f6efe5;
+  --color-cream-200: #ece2d3;
+  --color-cream-300: #ddcdb6;
+
+  --color-taupe-300: #c9b8a2;
+  --color-taupe-400: #a8977f;
+  --color-taupe-500: #857563;
+  --color-taupe-600: #6a5c4d;
+
+  --color-gold-200: #f3e1bf;
+  --color-gold-300: #ebcf9c;
+  --color-gold-400: #deb877;
+  --color-gold-500: #c79d5e;
+  --color-gold-600: #a57f45;
+  --color-gold-700: #7e6034;
+
+  --color-terracotta-400: #cf7650;
+  --color-terracotta-500: #b85c38;
+  --color-terracotta-600: #974728;
+
+  --color-olive-500: #6b7644;
+  --color-olive-600: #56603a;
+  --color-sea-500: #3f6b72;
+
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --shadow-soft: 0 1px 2px rgb(20 15 12 / 0.05), 0 12px 32px -18px rgb(20 15 12 / 0.28);
+  --shadow-lift: 0 2px 6px rgb(20 15 12 / 0.08), 0 30px 60px -30px rgb(20 15 12 / 0.45);
+  --shadow-glow: 0 0 0 1px rgb(222 184 119 / 0.25), 0 18px 40px -18px rgb(199 157 94 / 0.55);
+
+  --animate-pulse-dot: pulse-dot 2.4s var(--ease-soft) infinite;
+  --animate-sheet-in: sheet-in 0.42s var(--ease-out-expo);
+  --animate-fade-in: fade-in 0.3s var(--ease-soft);
+  --animate-toast-in: toast-in 0.4s var(--ease-out-expo);
+  --animate-scroll-cue: scroll-cue 2.4s var(--ease-soft) infinite;
+  --animate-bump: bump 0.45s var(--ease-out-expo);
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(134 199 120 / 0.55);
+    }
+    60% {
+      box-shadow: 0 0 0 7px rgb(134 199 120 / 0);
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes scroll-cue {
+    0% {
+      transform: translateY(-110%);
+    }
+    65%,
+    100% {
+      transform: translateY(220%);
+    }
+  }
+  @keyframes bump {
+    40% {
+      transform: scale(1.12);
+    }
+  }
+  @keyframes toast-in {
+    from {
+      transform: translateY(-12px) scale(0.98);
+      opacity: 0;
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    scroll-padding-top: calc(var(--header-h, 4.5rem) + 1rem);
+    background: var(--color-ink-950);
+  }
+  body {
+    background: var(--color-cream-50);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: clip;
+  }
+  ::selection {
+    background: var(--color-gold-300);
+    color: var(--color-ink-900);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-gold-500);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  button,
+  a,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+  input,
+  textarea,
+  select {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  img {
+    user-select: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Layout helpers */
+@utility container-x {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+  @media (width >= 48rem) {
+    padding-inline: 2rem;
+  }
+}
+
+/* Small caps label with a leading rule — used above section titles */
+@utility eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  font-weight: 600;
+  &::before {
+    content: '';
+    width: 2.25rem;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.6;
+  }
+}
+
+/* Film grain for cinematic surfaces */
+@utility grain {
+  position: relative;
+  isolation: isolate;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.09;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Dotted leader between a dish name and its price (classic menu typography) */
+@utility leader {
+  flex: 1 1 auto;
+  min-width: 1.5rem;
+  height: 0.9em;
+  border-bottom: 1px dotted currentColor;
+  opacity: 0.35;
+  transform: translateY(-0.2em);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
+
+/* Fieldsets default to min-width: min-content, which lets wide children (date strip) overflow. */
+@layer base {
+  fieldset {
+    min-inline-size: 0;
+  }
+}

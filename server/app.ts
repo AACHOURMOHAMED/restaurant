@@ -1,0 +1,159 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import cookie from '@fastify/cookie';
+import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import Fastify, { type FastifyServerOptions } from 'fastify';
+import { ZodError } from 'zod';
+import { restaurant } from '../content/restaurant';
+import type { ApiErrorBody } from '../shared/api-types';
+import { issuesToFields } from '../shared/schemas';
+import type { AppContext } from './context';
+import { AppError } from './errors';
+import { getWeeklyHours } from './repos/settings';
+import { publicRoutes } from './routes/public';
+import { staffRoutes } from './routes/staff';
+import { injectHead, renderHead } from './seo';
+
+/** Hide capability tokens (status links) from access logs. */
+export function redactUrl(url: string): string {
+  return url.replace(/(\/api\/public\/(?:reservations|orders)\/)[A-Za-z0-9_-]{20,}/, '$1[redacted]');
+}
+
+function errorBody(code: string, message: string, extra: Partial<ApiErrorBody['error']> = {}): ApiErrorBody {
+  return { error: { code, message, ...extra } };
+}
+
+export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOptions['logger'] } = {}) {
+  const { config } = ctx;
+  const app = Fastify({
+    logger: opts.logger ?? {
+      level: config.logLevel,
+      serializers: {
+        req: (req) => ({ method: req.method, url: redactUrl(req.url), remoteAddress: req.ip }),
+      },
+    },
+    // Fastify accepts a hop count at runtime; its type definitions only omit it.
+    trustProxy: config.trustProxy as boolean | string,
+    bodyLimit: 256 * 1024,
+  });
+
+  app.decorateRequest('staff', null);
+
+  const mapFrame = restaurant.address.mapEmbedUrl ? new URL(restaurant.address.mapEmbedUrl).origin : null;
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        mediaSrc: ["'self'", 'blob:'],
+        workerSrc: ["'self'", 'blob:'],
+        frameSrc: mapFrame ? [mapFrame] : ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: config.cookieSecure ? [] : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    hsts: config.cookieSecure ? undefined : false,
+  });
+  app.addHook('onSend', async (_req, reply) => {
+    // The in-site QR scanner needs the camera; nothing else does.
+    reply.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=()');
+  });
+
+  await app.register(cookie);
+  await app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1, fields: 5 } });
+  if (config.rateLimit) {
+    await app.register(rateLimit, {
+      global: false,
+      errorResponseBuilder: (_req, context) => ({
+        statusCode: 429,
+        ...errorBody('RATE_LIMITED', `Too many requests. Please try again in ${Math.ceil(context.ttl / 1000)} s.`),
+      }),
+    });
+  }
+
+  app.setErrorHandler((err, req, reply) => {
+    if (err instanceof AppError) {
+      return reply
+        .status(err.statusCode)
+        .send(errorBody(err.code, err.message, { fields: err.extra.fields, details: err.extra.details }));
+    }
+    if (err instanceof ZodError) {
+      return reply
+        .status(400)
+        .send(errorBody('VALIDATION', 'Some fields are invalid', { fields: issuesToFields(err.issues) }));
+    }
+    const e = err as { statusCode?: number; code?: string; message?: string };
+    if (e.statusCode === 429) return reply.status(429).send(errorBody('RATE_LIMITED', 'Too many requests'));
+    if (e.statusCode && e.statusCode >= 400 && e.statusCode < 500) {
+      return reply.status(e.statusCode).send(errorBody(e.code ?? 'BAD_REQUEST', e.message ?? 'Bad request'));
+    }
+    req.log.error({ err }, 'unhandled error');
+    return reply.status(500).send(errorBody('INTERNAL', 'Something went wrong. Please try again.'));
+  });
+
+  await publicRoutes(app, ctx);
+  await staffRoutes(app, ctx);
+
+  // Uploaded dish photos: file names are unique, so they can be cached forever.
+  fs.mkdirSync(config.uploadsDir, { recursive: true });
+  await app.register(fastifyStatic, {
+    root: config.uploadsDir,
+    prefix: '/uploads/',
+    decorateReply: false,
+    index: false,
+    setHeaders: (reply) => void reply.header('Cache-Control', 'public, max-age=31536000, immutable'),
+  });
+
+  // Built website (npm run build). In development Vite serves the front end instead.
+  const indexFile = path.join(config.staticDir, 'index.html');
+  const hasClient = fs.existsSync(indexFile);
+  if (hasClient) {
+    await app.register(fastifyStatic, {
+      root: config.staticDir,
+      prefix: '/',
+      index: false,
+      // Register the built files as routes; every other path falls through to the page handler below.
+      wildcard: false,
+      setHeaders: (reply, file) => {
+        const immutable = file.includes(`${path.sep}assets${path.sep}`) || file.includes(`${path.sep}photos${path.sep}`);
+        reply.header('Cache-Control', immutable ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      },
+    });
+  }
+  const template = hasClient ? fs.readFileSync(indexFile, 'utf8') : null;
+  let cached: { key: string; html: string } | null = null;
+  const renderIndex = () => {
+    const hours = getWeeklyHours(ctx.db);
+    const key = JSON.stringify(hours);
+    if (!cached || cached.key !== key) {
+      const head = renderHead({ lang: 'fr', publicUrl: config.publicUrl, hours, shareImage: null });
+      cached = { key, html: injectHead(template!, head) };
+    }
+    return cached.html;
+  };
+
+  app.setNotFoundHandler((req, reply) => {
+    const isPage =
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      !req.url.startsWith('/api/') &&
+      !req.url.startsWith('/uploads/') &&
+      !/\.[a-z0-9]{2,5}(\?|$)/i.test(req.url);
+    if (isPage && template) {
+      return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').send(renderIndex());
+    }
+    return reply.status(404).send(errorBody('NOT_FOUND', 'Not found'));
+  });
+
+  return app;
+}
