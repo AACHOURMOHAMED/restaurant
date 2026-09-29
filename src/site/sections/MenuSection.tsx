@@ -2,7 +2,7 @@ import { QrCode } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { ButtonLink, Notice, Spinner } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { revealIn, ScrollTrigger, useGSAP } from '@/lib/motion';
+import { loadGsap, useReveal } from '@/lib/motion';
 import { useMenu, useSite } from '@/lib/queries';
 import { MenuBrowser } from '@/menu/MenuBrowser';
 
@@ -12,12 +12,12 @@ export function MenuSection() {
   const site = useSite();
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(() => revealIn(ref.current), { scope: ref });
+  useReveal(ref);
 
   // The menu changes the page height once loaded: recompute scroll-trigger positions.
   useEffect(() => {
     if (!menu.data) return;
-    const id = requestAnimationFrame(() => ScrollTrigger.refresh());
+    const id = requestAnimationFrame(() => void loadGsap().then(({ ScrollTrigger }) => ScrollTrigger.refresh()));
     return () => cancelAnimationFrame(id);
   }, [menu.data]);
 

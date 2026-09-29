@@ -7,7 +7,7 @@ import { SocialIcon } from '@/components/brand';
 import { ButtonA, cn } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { formatDateLong, telHref, ucfirst } from '@/lib/format';
-import { revealIn, useGSAP } from '@/lib/motion';
+import { useReveal } from '@/lib/motion';
 import { useSite } from '@/lib/queries';
 import { OpenStatusBadge } from '../OpenStatusBadge';
 
@@ -17,7 +17,7 @@ export function Visit() {
   const { t, loc, locale } = useI18n();
   const site = useSite();
   const ref = useRef<HTMLElement>(null);
-  useGSAP(() => revealIn(ref.current), { scope: ref });
+  useReveal(ref);
 
   const a = restaurant.address;
   const today = site.data ? isoWeekday(site.data.today) : null;

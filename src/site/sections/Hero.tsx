@@ -1,11 +1,11 @@
 import { restaurant } from '@content/restaurant';
 import { MapPin, Phone } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, type CSSProperties } from 'react';
 import { hasPhoto, Photo } from '@/components/brand';
 import { Button, ButtonLink } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { telHref } from '@/lib/format';
-import { gsap, MOTION_OK, scrollToId, useGSAP } from '@/lib/motion';
+import { MOTION_OK, scrollToId, useMotion } from '@/lib/motion';
 import { OpenStatusBadge } from '../OpenStatusBadge';
 
 /**
@@ -33,24 +33,22 @@ function HeroBackdrop() {
   );
 }
 
+/** Position of an element in the CSS entrance cascade. */
+const order = (i: number) => ({ '--i': i }) as CSSProperties;
+
 export function Hero() {
   const { t, loc } = useI18n();
   const ref = useRef<HTMLElement>(null);
   const withPhoto = hasPhoto(restaurant.hero.photo);
   const [first, ...rest] = restaurant.name.split(' ');
 
-  useGSAP(
-    () => {
+  // The entrance animation is plain CSS (see `hero-line` in app.css); GSAP only drives the scroll parallax.
+  useMotion(
+    ({ gsap }) => {
       const mm = gsap.matchMedia();
       mm.add({ motion: MOTION_OK, small: '(max-width: 767px)' }, (context) => {
         const { motion, small } = context.conditions as { motion: boolean; small: boolean };
         if (!motion) return;
-        const intro = gsap.timeline({ defaults: { ease: 'expo.out' } });
-        intro
-          .from('[data-hero-line]', { yPercent: 115, duration: 1.5, stagger: 0.1 })
-          .from('[data-hero-fade]', { opacity: 0, y: 22, duration: 1.1, stagger: 0.09 }, '-=1.05')
-          .from('[data-hero-deco]', { opacity: 0, scale: 0.94, duration: 2.2, ease: 'power2.out' }, 0);
-
         const scroll = { trigger: ref.current, start: 'top top', end: 'bottom top', scrub: true };
         gsap.to('[data-hero-bg]', { yPercent: small ? 8 : 16, scale: 1.05, ease: 'none', scrollTrigger: scroll });
         gsap.to('[data-hero-deco]', { yPercent: small ? 14 : 30, ease: 'none', scrollTrigger: scroll });
@@ -74,30 +72,30 @@ export function Hero() {
       </div>
 
       <div data-hero-content className="container-x relative z-[2] pt-40 pb-28 md:pb-20">
-        <p data-hero-fade className="eyebrow text-gold-400">
+        <p data-hero-fade style={order(0)} className="eyebrow text-gold-400">
           {loc(restaurant.hero.eyebrow)}
         </p>
         <h1 className="font-display mt-7 text-[clamp(4.4rem,17vw,12.5rem)] leading-[0.8] font-medium tracking-[-0.015em]">
           <span className="block overflow-hidden pb-[0.06em]">
-            <span data-hero-line className="block">
+            <span data-hero-line style={order(0)} className="block">
               {first}
             </span>
           </span>
           {rest.length > 0 && (
             <span className="block overflow-hidden pb-[0.1em]">
-              <span data-hero-line className="block pl-[0.6em] font-normal text-gold-300 italic">
+              <span data-hero-line style={order(1)} className="block pl-[0.6em] font-normal text-gold-300 italic">
                 {rest.join(' ')}
               </span>
             </span>
           )}
         </h1>
-        <p data-hero-fade className="mt-7 max-w-xl text-lg leading-relaxed text-cream-100/85 md:text-xl">
+        <p data-hero-fade style={order(1)} className="mt-7 max-w-xl text-lg leading-relaxed text-cream-100/85 md:text-xl">
           {loc(restaurant.hero.subtitle)}
         </p>
-        <p data-hero-fade className="font-display mt-2 text-xl text-gold-300/90 italic">
+        <p data-hero-fade style={order(2)} className="font-display mt-2 text-xl text-gold-300/90 italic">
           — {loc(restaurant.tagline)}
         </p>
-        <div data-hero-fade className="mt-10 flex flex-col gap-3 sm:flex-row">
+        <div data-hero-fade style={order(3)} className="mt-10 flex flex-col gap-3 sm:flex-row">
           <ButtonLink to="/reservation" variant="gold" size="lg">
             {t.hero.reserve}
           </ButtonLink>
@@ -107,6 +105,7 @@ export function Hero() {
         </div>
         <div
           data-hero-fade
+          style={order(4)}
           className="mt-12 flex flex-col gap-3 border-t border-cream-50/15 pt-6 text-sm text-cream-100/75 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8"
         >
           <OpenStatusBadge reserve className="min-h-5" />

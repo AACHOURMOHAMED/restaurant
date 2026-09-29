@@ -2,12 +2,12 @@ import { Hash, ScanLine } from 'lucide-react';
 import { useRef } from 'react';
 import { ButtonLink } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { revealIn, useGSAP } from '@/lib/motion';
+import { useReveal } from '@/lib/motion';
 
 export function AtTable() {
   const { t } = useI18n();
   const ref = useRef<HTMLElement>(null);
-  useGSAP(() => revealIn(ref.current), { scope: ref });
+  useReveal(ref);
 
   return (
     <section ref={ref} className="grain relative overflow-hidden bg-terracotta-600 text-cream-50" aria-labelledby="at-table-title">

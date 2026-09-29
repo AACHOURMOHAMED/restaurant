@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { hasPhoto, Photo, PhotoPlaceholder, type PlaceholderIcon } from '@/components/brand';
 import { cn, IconButton } from '@/components/ui';
 import { useI18n } from '@/i18n';
-import { revealIn, useGSAP } from '@/lib/motion';
+import { useReveal } from '@/lib/motion';
 
 /** Mosaic that tiles cleanly on 2 columns (phones) and 4 columns (desktop). */
 const TILE_LAYOUT = [
@@ -108,7 +108,7 @@ export function Gallery() {
   const photos = restaurant.gallery.filter((g) => hasPhoto(g.photo));
   const preview = restaurant.status === 'preview';
 
-  useGSAP(() => revealIn(ref.current), { scope: ref });
+  useReveal(ref);
 
   if (photos.length === 0 && !preview) return null;
   return (

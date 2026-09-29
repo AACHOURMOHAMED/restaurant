@@ -5,7 +5,7 @@ import { DietaryBadges, DishImage, iconForCategory, type PlaceholderIcon } from 
 import { cn } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { usePrice } from '@/lib/format';
-import { gsap, MOTION_OK, ScrollTrigger, useGSAP } from '@/lib/motion';
+import { MOTION_OK, useMotion } from '@/lib/motion';
 import { DishSheet } from './DishSheet';
 import { filterMenu, usefulFilters, type MenuFilter } from './filters';
 
@@ -117,15 +117,20 @@ export function MenuBrowser({ categories, mode, onAdd, onQuickAdd, headingLevel 
   const viewKey = `${categoryId}|${filters.join(',')}|${query}`;
 
   // Staggered entrance: on first scroll into view, then a quick cascade whenever the filters change.
-  useGSAP(
-    () => {
+  useMotion(
+    ({ gsap, ScrollTrigger }) => {
       const root = listRef.current;
       if (!root) return;
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
-        const rows = Array.from(root.querySelectorAll<HTMLElement>('.dish-row'));
+        const all = Array.from(root.querySelectorAll<HTMLElement>('.dish-row'));
+        if (all.length === 0) return; // menu not loaded yet — the first run is still to come
+        const first = firstRun.current;
+        firstRun.current = false;
+        // On the first run, rows already on screen stay put (GSAP may arrive after they are painted).
+        const rows = first ? all.filter((row) => row.getBoundingClientRect().top > window.innerHeight) : all;
         if (rows.length === 0) return;
-        if (firstRun.current) {
+        if (first) {
           gsap.set(rows, { opacity: 0, y: 26 });
           ScrollTrigger.batch(rows, {
             start: 'top 94%',
@@ -140,9 +145,8 @@ export function MenuBrowser({ categories, mode, onAdd, onQuickAdd, headingLevel 
           );
         }
       });
-      firstRun.current = false;
     },
-    { scope: listRef, dependencies: [viewKey, categories], revertOnUpdate: true },
+    { scope: listRef, deps: [viewKey, categories] },
   );
 
   const toggleFilter = (f: MenuFilter) => setFilters((fs) => (fs.includes(f) ? fs.filter((x) => x !== f) : [...fs, f]));

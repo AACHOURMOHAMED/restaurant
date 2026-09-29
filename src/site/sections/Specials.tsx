@@ -4,7 +4,7 @@ import { DishImage, iconForCategory, type PlaceholderIcon } from '@/components/b
 import { Button, cn } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { usePrice } from '@/lib/format';
-import { revealIn, scrollToId, useGSAP } from '@/lib/motion';
+import { scrollToId, useReveal } from '@/lib/motion';
 import { useMenu, useSite } from '@/lib/queries';
 import { DishSheet } from '@/menu/DishSheet';
 
@@ -24,7 +24,7 @@ export function Specials() {
     [menu.data],
   );
 
-  useGSAP(() => revealIn(ref.current), { scope: ref, dependencies: [specials.length], revertOnUpdate: true });
+  useReveal(ref, [specials.length]);
 
   if (specials.length === 0) return null;
   return (

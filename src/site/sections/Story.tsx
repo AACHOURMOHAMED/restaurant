@@ -3,15 +3,16 @@ import { ArrowRight } from 'lucide-react';
 import { useRef } from 'react';
 import { Photo } from '@/components/brand';
 import { useI18n } from '@/i18n';
-import { gsap, MOTION_OK, revealIn, scrollToId, useGSAP } from '@/lib/motion';
+import { MOTION_OK, revealIn, scrollToId, useMotion } from '@/lib/motion';
 
 export function Story() {
   const { t, loc } = useI18n();
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(
-    () => {
-      revealIn(ref.current);
+  useMotion(
+    (m) => {
+      const { gsap } = m;
+      revealIn(m, ref.current);
       const mm = gsap.matchMedia();
       mm.add(MOTION_OK, () => {
         gsap.fromTo(
