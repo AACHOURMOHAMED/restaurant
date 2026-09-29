@@ -30,7 +30,7 @@ export function OpenStatusBadge({ className, reserve = false }: { className?: st
     <span className={cn('inline-flex items-center gap-2.5', className)} role="status">
       <span
         aria-hidden
-        className={cn('size-2 rounded-full', status.open ? 'animate-pulse-dot bg-[#86c778]' : 'bg-taupe-400')}
+        className={cn('size-2 rounded-full', status.open ? 'pulse-dot bg-[#86c778]' : 'bg-taupe-400')}
       />
       {label}
     </span>

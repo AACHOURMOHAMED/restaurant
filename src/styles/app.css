@@ -44,22 +44,12 @@
   --shadow-lift: 0 2px 6px rgb(20 15 12 / 0.08), 0 30px 60px -30px rgb(20 15 12 / 0.45);
   --shadow-glow: 0 0 0 1px rgb(222 184 119 / 0.25), 0 18px 40px -18px rgb(199 157 94 / 0.55);
 
-  --animate-pulse-dot: pulse-dot 2.4s var(--ease-soft) infinite;
   --animate-sheet-in: sheet-in 0.42s var(--ease-out-expo);
   --animate-fade-in: fade-in 0.3s var(--ease-soft);
   --animate-toast-in: toast-in 0.4s var(--ease-out-expo);
   --animate-scroll-cue: scroll-cue 2.4s var(--ease-soft) infinite;
   --animate-bump: bump 0.45s var(--ease-out-expo);
 
-  @keyframes pulse-dot {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgb(134 199 120 / 0.55);
-    }
-    60% {
-      box-shadow: 0 0 0 7px rgb(134 199 120 / 0);
-    }
-  }
   @keyframes sheet-in {
     from {
       transform: translateY(24px);
@@ -176,6 +166,31 @@
   from {
     opacity: 0;
     scale: 0.94;
+  }
+}
+
+/* "Open now" / "live" dot: a ring expands and fades around it. Only transform and opacity
+   change, so the browser animates it off the main thread (a box-shadow pulse repainted every frame). */
+@utility pulse-dot {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: inherit;
+    animation: pulse-ring 2.4s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  }
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  60%,
+  100% {
+    transform: scale(2.75);
+    opacity: 0;
   }
 }
 

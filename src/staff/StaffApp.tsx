@@ -210,7 +210,7 @@ export default function StaffApp() {
 
   const liveBadge = (
     <span className="inline-flex items-center gap-2 text-xs font-semibold" role="status">
-      <span className={cn('size-2 rounded-full', live ? 'animate-pulse-dot bg-[#86c778]' : 'bg-terracotta-400')} aria-hidden />
+      <span className={cn('size-2 rounded-full', live ? 'pulse-dot bg-[#86c778]' : 'bg-terracotta-400')} aria-hidden />
       {live ? s.live : s.reconnecting}
     </span>
   );
