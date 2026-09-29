@@ -35,6 +35,9 @@ const envSchema = z.object({
   STATIC_DIR: z.string().optional(),
 });
 
+/** A mistake in the environment variables: reported as one clear message, without a stack trace. */
+export class ConfigError extends Error {}
+
 export type AppConfig = {
   env: 'development' | 'production' | 'test';
   host: string;
@@ -60,16 +63,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')));
   if (!parsed.success) {
     const details = parsed.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n');
-    throw new Error(`Invalid environment configuration:\n${details}`);
+    throw new ConfigError(`Invalid environment configuration:\n${details}`);
   }
   const e = parsed.data;
   const dataDir = path.resolve(e.DATA_DIR);
 
   let trustProxy: boolean | number | string = false;
   if (e.TRUST_PROXY) {
-    if (e.TRUST_PROXY === 'true') trustProxy = true;
-    else if (/^\d+$/.test(e.TRUST_PROXY)) trustProxy = Number(e.TRUST_PROXY);
-    else trustProxy = e.TRUST_PROXY;
+    // `true` would trust every X-Forwarded-For entry, which visitors can write themselves:
+    // anyone could then pose as a new IP address on each request and bypass the rate limits.
+    if (e.TRUST_PROXY === 'true') {
+      throw new ConfigError(
+        'Invalid environment configuration:\n  TRUST_PROXY: set the NUMBER of proxies in front of the app (usually 1), or their IP addresses — not "true".',
+      );
+    }
+    trustProxy = /^\d+$/.test(e.TRUST_PROXY) ? Number(e.TRUST_PROXY) : e.TRUST_PROXY;
   }
 
   const fakeNow = e.NODE_ENV !== 'production' && e.FAKE_NOW ? new Date(e.FAKE_NOW) : null;
@@ -85,7 +93,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     staticDir: path.resolve(e.STATIC_DIR ?? 'dist/client'),
     publicUrl: e.PUBLIC_URL ?? null,
     trustProxy,
-    cookieSecure: e.COOKIE_SECURE === 'auto' ? e.NODE_ENV === 'production' : e.COOKIE_SECURE === 'true',
+    // `auto`: HTTPS-only cookies (plus HSTS) in production, or whenever the public address is https.
+    cookieSecure:
+      e.COOKIE_SECURE === 'auto'
+        ? e.NODE_ENV === 'production' || (e.PUBLIC_URL?.startsWith('https://') ?? false)
+        : e.COOKIE_SECURE === 'true',
     sessionTtlMs: e.SESSION_TTL_HOURS * 3_600_000,
     admin:
       e.ADMIN_EMAIL && e.ADMIN_PASSWORD

@@ -94,8 +94,11 @@ stored in `./data/` (SQLite database + uploaded dish photos).
 
 ```bash
 npm run build
-PUBLIC_URL=http://192.168.1.20:3000 npm start   # use your computer's local IP address
+PUBLIC_URL=http://192.168.1.20:3000 COOKIE_SECURE=false npm start   # your computer's local IP address
 ```
+
+(`npm start` runs in production mode, which expects HTTPS; `COOKIE_SECURE=false` allows this plain-HTTP test —
+never use it on the real site.)
 
 Open `http://192.168.1.20:3000` on the phone, print or display the QR codes from *Tables & QR*, and scan them with
 the phone's camera app. (The **in-site** scanner needs HTTPS, so on plain HTTP it falls back to typing the table
@@ -142,7 +145,9 @@ and JPEG versions. Dish photos are uploaded from the dashboard; they are resized
    browser **and again on the server**, which re-checks capacity at the moment of booking.
 3. What the guest sees depends on the booking system's answer — never on a guess:
    - staff approval required (default): **"Demande de réservation reçue — en attente de confirmation"**;
-   - automatic confirmation (if you turn approval off in *Réglages*) and there is room: **"Réservation confirmée"**.
+   - automatic confirmation (if you turn approval off in *Réglages*) and there is room: **"Réservation confirmée"**
+     — except for a request that repeats a booking, or comes from a number already holding three, which waits for
+     staff (see [Privacy and security](#privacy-and-security)).
 4. The guest gets a private status link (`/reservation/<token>`, also useful to cancel). The page updates by itself
    when the restaurant confirms or declines.
 5. Staff assign the table in the dashboard; the guest never has to choose one.
@@ -165,9 +170,11 @@ table ?"* section and the QR icon of the bottom bar — offers two choices:
 | **General QR code** (entrance, flyers) | `https://…/table?src=qr` | Asks the guest to enter their table number |
 | Unknown or replaced code | `https://…/t/<old>` | Explains it, and asks for the table number |
 
-Table codes are random (not the table number), so guessing another table's link is impractical, and **Générer un
-nouveau QR code** in the dashboard invalidates the old one (e.g. after a sticker is copied). QR codes that point to another website
-are refused by the in-site scanner.
+A table code is not a password: guests may also simply type the table number, so the site can't prove that
+someone ordering is really sitting at that table. Staff see every order with its table number before anything is
+served, can cancel a prank order in one tap, and can pause ordering or limit it to opening hours (*Réglages*).
+**Générer un nouveau QR code** retires a code (e.g. a damaged or misplaced sticker). QR codes that point to another
+website are refused by the in-site scanner.
 
 Anyone can browse the menu without a table; a valid, active table is only required to **send an order**.
 
@@ -231,7 +238,7 @@ bandbpark.ma, www.bandbpark.ma {
 }
 ```
 
-…and add `TRUST_PROXY=true` to `.env`. With nginx, use `proxy_pass http://127.0.0.1:3000;` plus the usual
+…and add `TRUST_PROXY=1` to `.env` (the number of proxies in front of the app: 2 if Cloudflare also sits in front). With nginx, use `proxy_pass http://127.0.0.1:3000;` plus the usual
 `X-Forwarded-*` headers (the live dashboard stream already disables nginx buffering).
 
 ### Option B — Node.js directly
@@ -265,8 +272,8 @@ All optional. Copy [`.env.example`](.env.example) to `.env`.
 | `DATABASE_PATH` | `$DATA_DIR/restaurant.db` | Override the database file |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Where the server listens |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | — | Creates the first administrator when no staff account exists |
-| `TRUST_PROXY` | off | `true` (or number of proxies) behind a reverse proxy |
-| `COOKIE_SECURE` | `auto` | `auto` = Secure cookies, HSTS and HTTPS upgrades in production. `false` only for testing production mode over plain HTTP |
+| `TRUST_PROXY` | off | Behind a reverse proxy: the **number** of proxies (usually `1`) or their IP addresses. `true` is refused: it would let visitors fake their address and slip past the rate limits |
+| `COOKIE_SECURE` | `auto` | `auto` = HTTPS-only cookies, HSTS and HTTPS upgrades in production (the default for `npm start` and Docker) or when `PUBLIC_URL` is https. `false` only for testing over plain HTTP |
 | `SESSION_TTL_HOURS` | `168` | Staff sessions expire after 7 days |
 | `NOTIFY_WEBHOOK_URL` | — | See [Notifications](#notifications-and-integrations) |
 | `RETENTION_DAYS` | `0` (never) | Erase guests' names, phones, e-mails and notes from reservations older than N days |
@@ -333,12 +340,18 @@ sent**: staff open the dashboard for details.
 ## Privacy and security
 
 - Guests' details (phone, e-mail, notes) are visible **only to signed-in staff**. Public pages and status links
-  never show them; status links use long random tokens, and only a fingerprint of each token is stored.
+  never show them. Status links use long random tokens; the database keeps only fingerprints, so even a copy of it
+  can't be used to rebuild them, and they are masked in the server logs.
 - Staff passwords are hashed with scrypt; sessions are stored server-side; the cookie is `HttpOnly`,
   `SameSite=Strict` and `Secure`; state-changing requests must come from the site itself (CSRF protection);
-  repeated failed logins are slowed down; administrator-only actions are enforced by the server.
+  administrator-only actions are enforced by the server. Failed sign-ins are throttled per address, so nobody can
+  lock a colleague out; changing your password signs out your other devices.
 - Every submission is validated on the server (the browser checks are only for convenience); the public forms are
-  rate-limited.
+  rate-limited, and one connection can send at most 20 reservation requests a day.
+- The booking form never reveals whether a phone number already has a reservation, and can't be used to block
+  someone: a request that repeats a booking, or comes from a number holding several, is accepted but always waits
+  for staff, who see it flagged (*"Doublon possible"*, *"Même numéro : 3 autres réservations"*) with a link to all
+  that number's bookings.
 - Strict security headers (Content-Security-Policy, HSTS, no framing, camera allowed only for this site).
 - No third-party trackers, fonts or scripts are loaded. Guests get no cookies (their language, cart and table are
   kept on their own phone). The QR scanner decodes the camera image **on the phone** — nothing is uploaded.

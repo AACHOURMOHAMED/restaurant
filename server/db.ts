@@ -1,14 +1,17 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { phoneDigits } from './lib/util';
 
 export type DB = Database.Database;
 
 /**
  * Schema migrations, applied in order and recorded in `schema_migrations`.
  * Never edit a migration that has shipped — add a new one instead.
+ * A migration is SQL, and/or a `run` step for data changes SQL can't express.
  */
-const MIGRATIONS: { version: number; sql: string }[] = [
+const MIGRATIONS: { version: number; sql?: string; run?: (db: DB) => void }[] = [
   {
     version: 1,
     sql: /* sql */ `
@@ -192,6 +195,32 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX idx_sessions_user ON staff_sessions(user_id);
     `,
   },
+  {
+    // Keep only a fingerprint of idempotency keys. Guests' status links are derived from the
+    // key and the server secret; with both stored here, a copy of the database would have been
+    // enough to rebuild every status link.
+    version: 2,
+    run: (db) => {
+      const fingerprint = (key: string) => crypto.createHash('sha256').update(key).digest('hex');
+      for (const table of ['reservations', 'orders']) {
+        const rows = db.prepare(`SELECT id, idempotency_key AS k FROM ${table} WHERE idempotency_key IS NOT NULL`).all() as {
+          id: number;
+          k: string;
+        }[];
+        const update = db.prepare(`UPDATE ${table} SET idempotency_key = ? WHERE id = ?`);
+        for (const r of rows) update.run(fingerprint(r.k), r.id);
+      }
+    },
+  },
+  {
+    // Phone numbers are compared in one form whatever the guest typed (+212…, 00212…, 0…).
+    version: 3,
+    run: (db) => {
+      const rows = db.prepare(`SELECT id, phone FROM reservations WHERE phone != ''`).all() as { id: number; phone: string }[];
+      const update = db.prepare('UPDATE reservations SET phone_digits = ? WHERE id = ?');
+      for (const r of rows) update.run(phoneDigits(r.phone), r.id);
+    },
+  },
 ];
 
 export function migrate(db: DB): void {
@@ -202,7 +231,8 @@ export function migrate(db: DB): void {
   for (const m of MIGRATIONS) {
     if (applied.has(m.version)) continue;
     db.transaction(() => {
-      db.exec(m.sql);
+      if (m.sql) db.exec(m.sql);
+      m.run?.(db);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(
         m.version,
         new Date().toISOString(),

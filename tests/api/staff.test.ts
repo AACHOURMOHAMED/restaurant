@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ADMIN, makeApp, ORIGIN, postReservation, reservationPayload, STAFF, type TestApp } from '../helpers';
 
 let t: TestApp;
@@ -63,6 +63,25 @@ describe('staff authentication', () => {
     expect(evil.statusCode).toBe(403);
     expect(evil.json().error.code).toBe('CSRF');
     expect((await staff('GET', '/api/staff/settings')).json().ordering.enabled).toBe(true);
+  });
+
+  it("doesn't let strangers lock a colleague out by typing wrong passwords", async () => {
+    const attempt = (password: string, ip: string) =>
+      t.app.inject({ method: 'POST', url: '/api/staff/login', remoteAddress: ip, headers: { origin: ORIGIN }, payload: { email: ADMIN.email, password } });
+    for (let i = 0; i < 5; i++) await attempt('wrong-password', '203.0.113.9');
+    expect((await attempt('wrong-password', '203.0.113.9')).json().error.code).toBe('TOO_MANY_ATTEMPTS');
+    expect((await attempt(ADMIN.password, '198.51.100.7')).statusCode).toBe(200);
+  });
+
+  it('signs out other sessions after a password change, and throttles wrong current passwords', async () => {
+    const mine = await t.login();
+    const other = await t.login(); // e.g. a forgotten tablet, or a stolen cookie
+    const change = (currentPassword: string) => mine('POST', '/api/staff/me/password', { currentPassword, newPassword: 'another-long-password' });
+    expect((await change(ADMIN.password)).statusCode).toBe(200);
+    expect((await mine('GET', '/api/staff/me')).statusCode).toBe(200);
+    expect((await other('GET', '/api/staff/me')).statusCode).toBe(401);
+    for (let i = 0; i < 5; i++) expect((await change('not-my-password')).statusCode).toBe(400);
+    expect((await change('not-my-password')).json().error.code).toBe('TOO_MANY_ATTEMPTS');
   });
 
   it('signs out', async () => {
@@ -187,6 +206,30 @@ describe('rate limiting', () => {
       expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
     } finally {
       await limited.close();
+    }
+  });
+});
+
+describe('online booking limits', () => {
+  it('caps new online requests per connection and day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // lets the test step past the 10-per-10-minutes burst limit
+    const limited = await makeApp({ rateLimit: true });
+    try {
+      const times = ['12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'];
+      const results: string[] = [];
+      for (let i = 0; i < 22; i++) {
+        if (i % 8 === 0) vi.setSystemTime(Date.now() + 11 * 60_000);
+        const res = await postReservation(
+          limited,
+          reservationPayload({ phone: `06000001${String(i).padStart(2, '0')}`, time: times[i % times.length], date: i < 11 ? '2026-10-06' : '2026-10-07' }),
+        );
+        results.push(res.statusCode === 201 ? 'created' : res.json().error.code);
+      }
+      expect(results.filter((r) => r === 'created')).toHaveLength(20);
+      expect(results.slice(20)).toEqual(['BOOKING_LIMIT', 'BOOKING_LIMIT']);
+    } finally {
+      await limited.close();
+      vi.useRealTimers();
     }
   });
 });

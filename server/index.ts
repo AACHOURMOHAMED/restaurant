@@ -1,5 +1,6 @@
+import { staffUserCreateSchema } from '../shared/schemas';
 import { buildApp } from './app';
-import { loadConfig } from './config';
+import { ConfigError, loadConfig } from './config';
 import { EventHub, Notifier, systemClock, type AppContext } from './context';
 import { openDatabase } from './db';
 import { countUsers, createUser } from './services/auth';
@@ -21,7 +22,13 @@ async function main() {
 
   if (countUsers(db) === 0) {
     if (config.admin) {
-      await createUser(db, { ...config.admin, role: 'admin' }, new Date());
+      // Same rules as accounts created in the dashboard (valid e-mail, 10+ character password).
+      const admin = staffUserCreateSchema.safeParse({ ...config.admin, role: 'admin' });
+      if (!admin.success) {
+        const fields = admin.error.issues.map((i) => i.path.join('.')).join(', ');
+        throw new ConfigError(`ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME are not valid (${fields}). The password needs at least 10 characters.`);
+      }
+      await createUser(db, admin.data, new Date());
       app.log.info(`Created administrator account ${config.admin.email}`);
     } else {
       app.log.warn('No staff account exists yet. Create one with: npm run create-admin');
@@ -50,6 +57,6 @@ async function main() {
 }
 
 main().catch((err: unknown) => {
-  console.error(err);
+  console.error(err instanceof ConfigError ? err.message : err);
   process.exit(1);
 });

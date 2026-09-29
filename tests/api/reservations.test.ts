@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { migrate } from '../../server/db';
 import { makeApp, newKey, postReservation, reservationPayload, type TestApp } from '../helpers';
 
 let t: TestApp;
@@ -76,6 +78,20 @@ describe('creating reservations', () => {
     expect(second.statusCode).toBe(200);
     expect(second.json().reference).toBe(first.json().reference);
     expect(second.json().statusToken).toBe(first.json().statusToken);
+    // Only a fingerprint of the key is stored: a copy of the database can't rebuild status links.
+    const stored = t.ctx.db.prepare('SELECT idempotency_key AS k FROM reservations').get() as { k: string };
+    expect(stored.k).toBe(crypto.createHash('sha256').update(key).digest('hex'));
+  });
+
+  it('upgrades existing databases: key fingerprints and comparable phone numbers', async () => {
+    await postReservation(t, reservationPayload({ phone: '+212 6 12 34 56 78' }));
+    // Put the row back in its pre-migration shape, then migrate again.
+    t.ctx.db.prepare(`UPDATE reservations SET idempotency_key = 'raw-key-000000000000', phone_digits = '212612345678'`).run();
+    t.ctx.db.prepare('DELETE FROM schema_migrations WHERE version >= 2').run();
+    migrate(t.ctx.db);
+    const row = t.ctx.db.prepare('SELECT idempotency_key AS k, phone_digits AS d FROM reservations').get() as { k: string; d: string };
+    expect(row.k).toBe(crypto.createHash('sha256').update('raw-key-000000000000').digest('hex'));
+    expect(row.d).toBe('0612345678');
   });
 
   it('requires an idempotency key', async () => {
@@ -119,11 +135,37 @@ describe('creating reservations', () => {
     expect(res.statusCode).toBe(201);
   });
 
-  it('prevents duplicate bookings for the same phone and time', async () => {
-    await postReservation(t, reservationPayload());
-    const dup = await postReservation(t, reservationPayload({ phone: '0612345678' }));
-    expect(dup.statusCode).toBe(409);
-    expect(dup.json().error.code).toBe('DUPLICATE_RESERVATION');
+  it('holds a repeated request for staff instead of refusing it', async () => {
+    // Refusing would reveal whether a number has a booking; accepting blindly would double-book.
+    const staff = await t.login();
+    const { booking } = (await staff('GET', '/api/staff/settings')).json();
+    await staff('PUT', '/api/staff/settings/booking', { ...booking, requireApproval: false });
+
+    const first = (await postReservation(t, reservationPayload())).json();
+    expect(first.status).toBe('confirmed');
+    const again = await postReservation(t, reservationPayload({ phone: '+212 6 12 34 56 78' })); // same number, other format
+    expect(again.statusCode).toBe(201);
+    expect(again.json().status).toBe('pending');
+
+    const list = (await staff('GET', '/api/staff/reservations?date=2026-10-06')).json().reservations;
+    expect(list.find((r: { reference: string }) => r.reference === again.json().reference)).toMatchObject({
+      samePhoneUpcoming: 1,
+      sameSlotAs: first.reference,
+    });
+    // Staff find every booking of that number, whatever format it was typed in.
+    expect((await staff('GET', '/api/staff/reservations?q=0612345678')).json().reservations).toHaveLength(2);
+  });
+
+  it('never refuses a guest because their number already holds bookings, but asks staff to check', async () => {
+    const staff = await t.login();
+    const { booking } = (await staff('GET', '/api/staff/settings')).json();
+    await staff('PUT', '/api/staff/settings/booking', { ...booking, requireApproval: false });
+    for (const time of ['12:00', '13:00', '19:00']) {
+      expect((await postReservation(t, reservationPayload({ time }))).json().status).toBe('confirmed');
+    }
+    const fourth = await postReservation(t, reservationPayload({ time: '21:00' }));
+    expect(fourth.statusCode).toBe(201);
+    expect(fourth.json().status).toBe('pending');
   });
 
   it('stops accepting bookings when a slot is full', async () => {

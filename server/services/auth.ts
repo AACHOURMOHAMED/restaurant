@@ -57,11 +57,15 @@ const toUser = (u: UserRow): StaffUser => ({
   createdAt: u.created_at,
 });
 
-// ─── Login throttling (in memory; per e-mail and per IP) ─────────────────────
+// ─── Login throttling (in memory) ────────────────────────────────────────────
+// Failures are counted per (e-mail, IP) and per IP — never per e-mail alone, otherwise
+// anyone could lock a colleague out of the dashboard by typing wrong passwords for them.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 5;
 const failures = new Map<string, number[]>();
+
+const tooManyAttempts = () => new AppError(429, 'TOO_MANY_ATTEMPTS', 'Too many failed attempts. Try again in a few minutes.');
 
 function recentFailures(key: string, now: number) {
   const list = (failures.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
@@ -80,10 +84,10 @@ export async function login(
   ip: string,
   now: Date,
 ): Promise<{ user: StaffMe; userId: number }> {
-  const keys = [`e:${email}`, `ip:${ip}`];
+  const keys = [`e:${email}|${ip}`, `ip:${ip}`];
   const t = now.getTime();
   if (keys.some((k) => recentFailures(k, t).length >= (k.startsWith('ip:') ? MAX_FAILURES * 4 : MAX_FAILURES))) {
-    throw new AppError(429, 'TOO_MANY_ATTEMPTS', 'Too many failed attempts. Try again in a few minutes.');
+    throw tooManyAttempts();
   }
   const user = db.prepare('SELECT * FROM staff_users WHERE email = ?').get(email) as UserRow | undefined;
   const ok = user ? await verifyPassword(password, user.password_hash) : await verifyPassword(password, await getDummyHash());
@@ -91,7 +95,7 @@ export async function login(
     for (const k of keys) recentFailures(k, t).push(t);
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Incorrect e-mail or password');
   }
-  failures.delete(`e:${email}`);
+  failures.delete(keys[0]!);
   db.prepare('UPDATE staff_users SET last_login_at = ? WHERE id = ?').run(now.toISOString(), user.id);
   return { user: toMe(user), userId: user.id };
 }
@@ -188,10 +192,29 @@ export async function updateUser(
   return toUser(db.prepare('SELECT * FROM staff_users WHERE id = ?').get(id) as UserRow);
 }
 
-export async function changeOwnPassword(db: DB, userId: number, current: string, next: string): Promise<void> {
+/**
+ * Changes the signed-in user's password and signs out their other sessions (a stolen
+ * cookie or a forgotten tablet stops working). Wrong current passwords are throttled.
+ */
+export async function changeOwnPassword(
+  db: DB,
+  userId: number,
+  current: string,
+  next: string,
+  opts: { keepSession: string | undefined; now: Date },
+): Promise<void> {
+  const key = `pw:${userId}`;
+  const t = opts.now.getTime();
+  if (recentFailures(key, t).length >= MAX_FAILURES) throw tooManyAttempts();
   const user = db.prepare('SELECT * FROM staff_users WHERE id = ?').get(userId) as UserRow | undefined;
   if (!user || !(await verifyPassword(current, user.password_hash))) {
+    recentFailures(key, t).push(t);
     throw new AppError(400, 'VALIDATION', 'Current password is incorrect', { fields: { currentPassword: 'wrong_password' } });
   }
-  db.prepare('UPDATE staff_users SET password_hash = ? WHERE id = ?').run(await hashPassword(next), userId);
+  failures.delete(key);
+  const hash = await hashPassword(next);
+  db.transaction(() => {
+    db.prepare('UPDATE staff_users SET password_hash = ? WHERE id = ?').run(hash, userId);
+    db.prepare('DELETE FROM staff_sessions WHERE user_id = ? AND id_hash != ?').run(userId, sha256(opts.keepSession ?? ''));
+  })();
 }

@@ -40,11 +40,14 @@ function ReservationCard({
   r,
   tables,
   onPatch,
+  onSamePhone,
   busy,
 }: {
   r: StaffReservation;
   tables: StaffTable[];
   onPatch: (patch: { status?: ReservationStatus; tableId?: number | null; staffNote?: string | null }, confirmMessage?: string) => void;
+  /** Lists every reservation made with this phone number. */
+  onSamePhone: (phone: string) => void;
   busy: boolean;
 }) {
   const s = useStaffT();
@@ -131,6 +134,31 @@ function ReservationCard({
         <p className="mt-3 rounded-2xl bg-gold-200/40 px-3 py-2 text-sm text-ink-800">
           <span className="font-semibold">{s.res.notes} : </span>
           {r.notes}
+        </p>
+      )}
+
+      {r.samePhoneUpcoming > 0 && (
+        <p
+          className={cn(
+            'mt-3 flex items-start gap-2 rounded-2xl px-3 py-2 text-sm',
+            r.sameSlotAs || r.samePhoneUpcoming >= 3 ? 'bg-terracotta-400/12 text-terracotta-600' : 'bg-cream-100 text-ink-700',
+          )}
+          data-testid="same-phone"
+        >
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            {r.sameSlotAs ? (
+              <>
+                {s.res.sameSlot} <strong className="whitespace-nowrap">{r.sameSlotAs}</strong>
+              </>
+            ) : (
+              s.res.samePhone(r.samePhoneUpcoming)
+            )}
+            {' · '}
+            <button type="button" className="font-semibold underline underline-offset-2" onClick={() => onSamePhone(r.phone)}>
+              {s.res.showSamePhone}
+            </button>
+          </span>
         </p>
       )}
 
@@ -366,6 +394,10 @@ export default function ReservationsPage() {
   const params: Record<string, string | undefined> =
     tab === 'day' ? { date: day ?? undefined, status: 'all' } : tab === 'pending' ? { from: today, status: 'pending' } : { q, status: 'all' };
   const searchReady = tab !== 'search' || q.length >= 2;
+  const showSamePhone = (phone: string) => {
+    setTab('search');
+    setQuery(phone);
+  };
   const list = useReservations(params, { live, enabled: searchReady && (tab !== 'day' || !!day) });
 
   const patch = useMutation({
@@ -492,7 +524,14 @@ export default function ReservationsPage() {
               </h2>
               <div className="grid gap-4 xl:grid-cols-2">
                 {items.map((r) => (
-                  <ReservationCard key={r.id} r={r} tables={tables.data ?? []} onPatch={onPatch(r.id)} busy={patch.isPending && patch.variables?.id === r.id} />
+                  <ReservationCard
+                    key={r.id}
+                    r={r}
+                    tables={tables.data ?? []}
+                    onPatch={onPatch(r.id)}
+                    onSamePhone={showSamePhone}
+                    busy={patch.isPending && patch.variables?.id === r.id}
+                  />
                 ))}
               </div>
             </section>

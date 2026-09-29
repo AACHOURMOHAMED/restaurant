@@ -16,6 +16,7 @@ import { addDays, zonedNow } from '../../shared/time';
 import type { AppContext } from '../context';
 import { AppError, conflict } from '../errors';
 import { idempotencyKey, parse } from '../http';
+import { WindowCounter } from '../lib/util';
 import { getPublicMenu } from '../repos/menu';
 import {
   getBookingSettings,
@@ -35,6 +36,7 @@ import {
 } from '../services/reservations';
 
 const limit = (max: number, minutes: number) => ({ rateLimit: { max, timeWindow: minutes * 60_000 } });
+const DAILY_BOOKINGS_PER_IP = 20;
 
 export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db } = ctx;
@@ -110,10 +112,19 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     });
   });
 
+  // On top of the burst limit: at most DAILY_BOOKINGS_PER_IP new online requests per connection and
+  // day, so a script can't fill the reservation book. Generous, because phones on mobile networks
+  // often share one public address.
+  const dailyBookings = new WindowCounter(24 * 3_600_000);
   app.post('/api/public/reservations', { config: limit(10, 10) }, async (req, reply) => {
     const key = idempotencyKey(req);
     const input = parse(reservationInputSchema, req.body);
+    const t = ctx.clock.now().getTime();
+    if (ctx.config.rateLimit && dailyBookings.count(req.ip, t) >= DAILY_BOOKINGS_PER_IP) {
+      throw new AppError(429, 'BOOKING_LIMIT', 'Too many reservation requests from this connection today. Please call the restaurant.');
+    }
     const { reservation, created } = createReservation(ctx, input, { source: 'web', actor: 'guest', idempotencyKey: key });
+    if (created) dailyBookings.add(req.ip, t);
     return reply.code(created ? 201 : 200).send(reservation);
   });
 

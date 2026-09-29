@@ -35,6 +35,7 @@ type Row = {
   party_size: number;
   name: string;
   phone: string;
+  phone_digits: string;
   email: string | null;
   notes: string | null;
   staff_note: string | null;
@@ -100,7 +101,9 @@ export function toPublic(row: Row, now: Date): ReservationPublic {
   };
 }
 
-export function toStaff(row: Row): StaffReservation {
+type StaffFields = Omit<StaffReservation, 'samePhoneUpcoming' | 'sameSlotAs'>;
+
+function toStaff(row: Row): StaffFields {
   return {
     id: row.id,
     reference: row.reference,
@@ -124,6 +127,34 @@ export function toStaff(row: Row): StaffReservation {
 }
 
 const SELECT_WITH_TABLE = `SELECT r.*, t.number AS table_number FROM reservations r LEFT JOIN dining_tables t ON t.id = r.table_id`;
+
+/**
+ * Staff view of reservations, with the other upcoming bookings made with the same phone
+ * number: a repeated request, a regular guest, or someone filling the book.
+ */
+function staffView(ctx: AppContext, rows: Row[]): StaffReservation[] {
+  const today = zonedNow(getBookingSettings(ctx.db).timeZone, ctx.clock.now()).date;
+  const phones = [...new Set(rows.map((r) => r.phone_digits).filter(Boolean))];
+  const byPhone = new Map<string, { id: number; reference: string; date: string; time: string }[]>();
+  if (phones.length > 0) {
+    const others = ctx.db
+      .prepare(
+        `SELECT id, reference, phone_digits, date, time FROM reservations
+         WHERE phone_digits IN (${phones.map(() => '?').join(',')}) AND date >= ?
+           AND status IN (${ACTIVE_RESERVATION_STATUSES.map(() => '?').join(',')})`,
+      )
+      .all(...phones, today, ...ACTIVE_RESERVATION_STATUSES) as { id: number; reference: string; phone_digits: string; date: string; time: string }[];
+    for (const o of others) byPhone.set(o.phone_digits, [...(byPhone.get(o.phone_digits) ?? []), o]);
+  }
+  return rows.map((r) => {
+    const others = (byPhone.get(r.phone_digits) ?? []).filter((o) => o.id !== r.id);
+    return {
+      ...toStaff(r),
+      samePhoneUpcoming: others.length,
+      sameSlotAs: others.find((o) => o.date === r.date && o.time === r.time)?.reference ?? null,
+    };
+  });
+}
 
 function getRow(db: DB, id: number): Row | undefined {
   return db.prepare(`${SELECT_WITH_TABLE} WHERE r.id = ?`).get(id) as Row | undefined;
@@ -164,9 +195,11 @@ export function createReservation(
   const now = ctx.clock.now();
   const key = opts.idempotencyKey ?? `staff:${randomToken(16)}`;
   const token = tokenFor(db, key);
+  // Only a fingerprint of the key is stored, so the status link can't be rebuilt from the database.
+  const keyHash = sha256(key);
 
   const result = immediate(db, () => {
-    const existing = db.prepare('SELECT * FROM reservations WHERE idempotency_key = ?').get(key) as Row | undefined;
+    const existing = db.prepare('SELECT * FROM reservations WHERE idempotency_key = ?').get(keyHash) as Row | undefined;
     if (existing) return { row: existing, created: false };
 
     const settings = getBookingSettings(db);
@@ -193,7 +226,12 @@ export function createReservation(
       if (!slot.available) throw new AppError(409, 'SLOT_FULL', 'This time is fully booked');
     }
 
+    // A request that repeats a booking (same phone, same time) or comes from a phone that already
+    // holds several upcoming bookings is accepted, but always waits for staff, who see it flagged.
+    // Refusing it would tell anyone whether a number has a booking, and would let a stranger
+    // block a guest by booking with their number first.
     const digits = phoneDigits(input.phone);
+    let needsReview = false;
     if (opts.source === 'web') {
       const placeholders = ACTIVE_RESERVATION_STATUSES.map(() => '?').join(',');
       const same = db
@@ -201,11 +239,10 @@ export function createReservation(
           `SELECT 1 FROM reservations WHERE phone_digits = ? AND date = ? AND time = ? AND status IN (${placeholders})`,
         )
         .get(digits, input.date, input.time, ...ACTIVE_RESERVATION_STATUSES);
-      if (same) throw conflict('DUPLICATE_RESERVATION', 'A reservation already exists for this phone number at this time');
       const upcoming = db
         .prepare(`SELECT COUNT(*) AS n FROM reservations WHERE phone_digits = ? AND date >= ? AND status IN (${placeholders})`)
         .get(digits, today, ...ACTIVE_RESERVATION_STATUSES) as { n: number };
-      if (upcoming.n >= 3) throw conflict('TOO_MANY_RESERVATIONS', 'Too many upcoming reservations for this phone number');
+      needsReview = Boolean(same) || upcoming.n >= 3;
     }
 
     if (opts.tableId != null) {
@@ -214,7 +251,11 @@ export function createReservation(
     }
 
     const status: ReservationStatus =
-      opts.source === 'web' ? (settings.requireApproval ? 'pending' : 'confirmed') : (opts.status ?? 'confirmed');
+      opts.source === 'web'
+        ? settings.requireApproval || needsReview
+          ? 'pending'
+          : 'confirmed'
+        : (opts.status ?? 'confirmed');
     const ts = now.toISOString();
     const info = db
       .prepare(
@@ -239,7 +280,7 @@ export function createReservation(
         opts.tableId ?? null,
         opts.source,
         input.lang ?? 'fr',
-        key,
+        keyHash,
         ts,
         ts,
       );
@@ -310,15 +351,18 @@ export function listReservations(ctx: AppContext, q: ListQuery) {
   }
   if (q.q) {
     const like = `%${q.q.replace(/[%_]/g, '')}%`;
-    where.push('(r.name LIKE ? OR r.phone LIKE ? OR r.reference LIKE ? OR r.email LIKE ?)');
-    params.push(like, like, like, like);
+    // Phone numbers also match whatever format they were typed in ("+212 6…" finds "06…").
+    const digits = phoneDigits(q.q);
+    const byDigits = digits.length >= 4 && /^[\d\s+().-]+$/.test(q.q);
+    where.push(`(r.name LIKE ? OR r.phone LIKE ? OR r.reference LIKE ? OR r.email LIKE ?${byDigits ? ' OR r.phone_digits LIKE ?' : ''})`);
+    params.push(like, like, like, like, ...(byDigits ? [`%${digits}%`] : []));
   }
   const rows = ctx.db
     .prepare(
       `${SELECT_WITH_TABLE} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY r.date, r.time, r.id LIMIT 500`,
     )
     .all(...params) as Row[];
-  return rows.map(toStaff);
+  return staffView(ctx, rows);
 }
 
 export function reservationCounts(ctx: AppContext) {
@@ -333,7 +377,7 @@ export function reservationCounts(ctx: AppContext) {
 export function getStaffReservation(ctx: AppContext, id: number): StaffReservation {
   const row = getRow(ctx.db, id);
   if (!row) throw notFound('Reservation');
-  return toStaff(row);
+  return staffView(ctx, [row])[0]!;
 }
 
 export type TableConflict = { reference: string; time: string; name: string };
@@ -391,7 +435,7 @@ export function updateReservation(
       partySize: updated.party_size,
     });
   }
-  return { reservation: toStaff(updated), warnings: tableConflicts(db, updated) };
+  return { reservation: staffView(ctx, [updated])[0]!, warnings: tableConflicts(db, updated) };
 }
 
 /** Other active reservations on the same table whose time windows overlap. */

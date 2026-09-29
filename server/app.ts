@@ -19,9 +19,9 @@ import { publicRoutes } from './routes/public';
 import { staffRoutes } from './routes/staff';
 import { injectHead, renderHead } from './seo';
 
-/** Hide capability tokens (status links) from access logs. */
+/** Hide capability tokens (guests' status links, as API calls or as pages) from access logs. */
 export function redactUrl(url: string): string {
-  return url.replace(/(\/api\/public\/(?:reservations|orders)\/)[A-Za-z0-9_-]{20,}/, '$1[redacted]');
+  return url.replace(/(\/(?:api\/public\/(?:reservations|orders)|reservation|order)\/)[A-Za-z0-9_-]{20,}/, '$1[redacted]');
 }
 
 function errorBody(code: string, message: string, extra: Partial<ApiErrorBody['error']> = {}): ApiErrorBody {

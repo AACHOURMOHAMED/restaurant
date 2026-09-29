@@ -103,9 +103,11 @@ export function createOrder(
   const { db } = ctx;
   const now = ctx.clock.now();
   const token = tokenFor(db, idempotencyKey);
+  // Only a fingerprint of the key is stored, so the status link can't be rebuilt from the database.
+  const keyHash = sha256(idempotencyKey);
 
   const result = immediate(db, () => {
-    const existing = db.prepare('SELECT * FROM orders WHERE idempotency_key = ?').get(idempotencyKey) as
+    const existing = db.prepare('SELECT * FROM orders WHERE idempotency_key = ?').get(keyHash) as
       | OrderRow
       | undefined;
     if (existing) return { row: existing, created: false };
@@ -178,7 +180,7 @@ export function createOrder(
           total,
           restaurant.currency.code,
           input.lang ?? 'fr',
-          idempotencyKey,
+          keyHash,
           ts,
           ts,
         ).lastInsertRowid,

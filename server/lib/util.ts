@@ -48,6 +48,35 @@ export function normalizeTableNumber(input: string): string {
   return v;
 }
 
-export const phoneDigits = (phone: string) => phone.replace(/\D/g, '');
+/**
+ * Comparable form of a phone number: digits only, with the Moroccan international prefix
+ * (+212 / 00212) folded into the national form — "+212 6 12 34 56 78" = "06 12 34 56 78".
+ */
+export function phoneDigits(phone: string): string {
+  let d = phone.replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('212') && d.length === 12) d = `0${d.slice(3)}`;
+  return d;
+}
 
 export const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? '';
+
+/** Counts events per key over a sliding time window (in memory — the app runs as one process). */
+export class WindowCounter {
+  private readonly hits = new Map<string, number[]>();
+  constructor(private readonly windowMs: number) {}
+
+  count(key: string, now: number): number {
+    const recent = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (recent.length > 0) this.hits.set(key, recent);
+    else this.hits.delete(key);
+    return recent.length;
+  }
+
+  add(key: string, now: number): void {
+    const list = this.hits.get(key) ?? [];
+    list.push(now);
+    this.hits.set(key, list);
+    if (this.hits.size > 10_000) for (const k of [...this.hits.keys()]) this.count(k, now); // drop idle keys
+  }
+}

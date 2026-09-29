@@ -12,4 +12,7 @@ await build({
   packages: 'external',
   sourcemap: true,
   logLevel: 'info',
+  // The built server is what runs in production: default to it unless NODE_ENV says otherwise
+  // (this turns on HTTPS-only cookies and HSTS). Runs before any of the bundled code.
+  banner: { js: "process.env.NODE_ENV ??= 'production';" },
 });

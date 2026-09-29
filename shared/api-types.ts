@@ -154,6 +154,10 @@ export type StaffReservation = {
   lang: Lang;
   createdAt: string;
   updatedAt: string;
+  /** Other upcoming, active reservations made with the same phone number. */
+  samePhoneUpcoming: number;
+  /** Reference of another active reservation with the same phone at the same date and time. */
+  sameSlotAs: string | null;
 };
 
 export type StaffTable = {

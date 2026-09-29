@@ -93,7 +93,10 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post('/api/staff/me/password', staff, async (req) => {
     const body = parse(changePasswordSchema, req.body);
-    await changeOwnPassword(db, req.staff!.id, body.currentPassword, body.newPassword);
+    await changeOwnPassword(db, req.staff!.id, body.currentPassword, body.newPassword, {
+      keepSession: req.cookies[STAFF_COOKIE],
+      now: now(),
+    });
     return { ok: true };
   });
 

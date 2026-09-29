@@ -25,4 +25,14 @@ describe('server configuration', () => {
   it('never fakes the clock in production', () => {
     expect(loadConfig({ NODE_ENV: 'production', FAKE_NOW: '2026-01-01T00:00:00Z' }).fakeNow).toBeNull();
   });
+
+  it('refuses TRUST_PROXY=true, which would let visitors fake their address', () => {
+    expect(() => loadConfig({ TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);
+    expect(loadConfig({ TRUST_PROXY: '1' }).trustProxy).toBe(1);
+  });
+
+  it('uses HTTPS-only cookies whenever the public address is https', () => {
+    expect(loadConfig({ PUBLIC_URL: 'https://www.bandbpark.ma' }).cookieSecure).toBe(true);
+    expect(loadConfig({ PUBLIC_URL: 'http://192.168.1.20:3000' }).cookieSecure).toBe(false);
+  });
 });
