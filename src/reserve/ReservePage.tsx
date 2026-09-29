@@ -159,10 +159,11 @@ export default function ReservePage() {
     <>
       <PageHero eyebrow={restaurant.name} title={t.reserve.title}>
         <p>{t.reserve.intro}</p>
-        <p className="mt-3 inline-flex min-h-6 items-center gap-2 text-[15px] text-gold-300">
+        {/* Space for two lines on phones (where the note wraps) so the form doesn't jump once it loads. */}
+        <p className="mt-3 flex min-h-12 items-start gap-2 text-[15px] leading-6 text-gold-300 sm:min-h-6">
           {booking && (
             <>
-              <ShieldCheck className="size-4.5" aria-hidden />
+              <ShieldCheck className="mt-[3px] size-4.5 shrink-0" aria-hidden />
               {booking.requireApproval ? t.reserve.approvalNote : t.reserve.instantNote}
             </>
           )}

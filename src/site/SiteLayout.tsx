@@ -1,6 +1,6 @@
 import { restaurant } from '@content/restaurant';
 import { CalendarDays, Menu as MenuIcon, Phone, QrCode, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, Outlet, ScrollRestoration, useLocation, useNavigate } from 'react-router';
 import { Logo, SocialIcon } from '@/components/brand';
 import { ButtonLink, cn, IconButton } from '@/components/ui';
@@ -175,7 +175,8 @@ function Header({ overlay }: { overlay: boolean }) {
   const goSection = useSectionNav();
   const headerRef = useRef<HTMLElement>(null);
 
-  useEffect(() => (headerRef.current ? observeHeaderHeight(headerRef.current) : undefined), []);
+  // Layout effect: page tops are padded by the header height, so measure it before the first paint.
+  useLayoutEffect(() => (headerRef.current ? observeHeaderHeight(headerRef.current) : undefined), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
