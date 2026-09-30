@@ -1,0 +1,9 @@
+{
+  "name": "B&B Park — Restaurant à Kénitra",
+  "short_name": "B&B Park",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#120d0a",
+  "theme_color": "#120d0a",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

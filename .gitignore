@@ -1,0 +1,19 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+test-results/
+playwright-report/
+tests/.tmp/
+.DS_Store
+*.log
+# Generated from content/photos by `npm run photos`
+public/photos/
+src/generated/
+# Vercel CLI (vercel link / env pull)
+.vercel/
