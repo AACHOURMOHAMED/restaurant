@@ -23,7 +23,8 @@ export const staffKeys = {
 
 export type ReservationList = {
   reservations: StaffReservation[];
-  counts: { pendingUpcoming: number; today: string };
+  /** latestRequestId: newest reservation made by a guest online (new requests are spotted by it). */
+  counts: { pendingUpcoming: number; today: string; latestRequestId: number | null };
 };
 
 export const useMe = () =>

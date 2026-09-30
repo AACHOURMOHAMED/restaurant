@@ -28,7 +28,23 @@ describe('server configuration', () => {
 
   it('refuses TRUST_PROXY=true, which would let visitors fake their address', () => {
     expect(() => loadConfig({ TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);
-    expect(loadConfig({ TRUST_PROXY: '1' }).trustProxy).toBe(1);
+  });
+
+  it('TRUST_PROXY=<n> believes n proxies, the nearest one on this machine or a private network', () => {
+    const trust = loadConfig({ TRUST_PROXY: '1' }).trustProxy as (address: string, hop: number) => boolean;
+    expect(trust('127.0.0.1', 0)).toBe(true); // Caddy/nginx on the same machine
+    expect(trust('::ffff:172.18.0.1', 0)).toBe(true); // Docker host
+    expect(trust('203.0.113.9', 0)).toBe(false); // a visitor connecting directly can't pick their address
+    expect(trust('127.0.0.1', 1)).toBe(false); // only one proxy
+    const two = loadConfig({ TRUST_PROXY: '2' }).trustProxy as (address: string, hop: number) => boolean;
+    expect(two('198.51.100.7', 1)).toBe(true); // e.g. Cloudflare in front of Caddy
+    expect(loadConfig({ TRUST_PROXY: '10.0.0.5' }).trustProxy).toBe('10.0.0.5');
+  });
+
+  it('on Vercel, believes exactly the Vercel proxy', () => {
+    const trust = loadConfig({ VERCEL: '1', DATABASE_URL: 'postgres://u:p@db.example/x' }).trustProxy as (a: string, h: number) => boolean;
+    expect(trust('127.0.0.1', 0)).toBe(true);
+    expect(trust('127.0.0.1', 1)).toBe(false);
   });
 
   it('uses HTTPS-only cookies whenever the public address is https', () => {

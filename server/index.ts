@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { buildApp } from './app.js';
 import { createContext, ensureAdmin } from './bootstrap.js';
 import { ConfigError, loadConfig } from './config.js';
@@ -11,6 +13,11 @@ async function main() {
   ctx.notifier = new Notifier(config.webhookUrl, app.log);
 
   await ensureAdmin(ctx, app.log);
+  if (fs.existsSync(path.join(config.dataDir, 'restaurant.db'))) {
+    app.log.warn(
+      `${config.dataDir}/restaurant.db is a database of the previous (SQLite) version. This version uses PostgreSQL and does not read it.`,
+    );
+  }
 
   // Retention purge and cleanup of expired sessions (on Vercel, a cron job calls /api/cron/daily instead).
   const tidy = () =>

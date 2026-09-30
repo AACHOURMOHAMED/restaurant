@@ -166,6 +166,7 @@ export function iconForCategory(name: string | undefined): PlaceholderIcon {
 /** Dish photo uploaded from the dashboard, or a placeholder themed by category. */
 export function DishImage({
   image,
+  base: imageBase,
   alt,
   sizes = '(min-width: 768px) 320px, 100vw',
   icon = 'table',
@@ -175,6 +176,8 @@ export function DishImage({
   showLabel = false,
 }: {
   image: string | null;
+  /** Where this photo is stored (the dish's `imageBase`); defaults to the site's current photo address. */
+  base?: string | null;
   alt: string;
   sizes?: string;
   icon?: PlaceholderIcon;
@@ -184,7 +187,8 @@ export function DishImage({
   showLabel?: boolean;
 }) {
   // Photos live on this server ('/uploads') or on the photo storage's CDN (Vercel Blob).
-  const base = useSite().data?.mediaBase;
+  const siteBase = useSite().data?.mediaBase;
+  const base = imageBase ?? siteBase;
   if (!image || !base) return <PhotoPlaceholder icon={icon} tone={tone} className={className} label={showLabel} />;
   const src = (w: number) => `${base}/menu/${image}-${w}.webp`;
   return (

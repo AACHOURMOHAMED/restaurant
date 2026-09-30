@@ -65,6 +65,7 @@ export function Specials() {
                   <div className="aspect-[4/5] overflow-hidden [grid-area:1/1]">
                     <DishImage
                       image={item.image}
+                      base={item.imageBase}
                       alt=""
                       icon={icon}
                       tone={i % 2 ? 'warm' : 'dark'}

@@ -140,21 +140,29 @@ export default function StaffApp() {
     document.title = `${s.dashboard} · B&B Park`;
   }, [s]);
 
+  // New orders and booking requests are announced once each, whether the live stream or a poll
+  // spots them first.
+  const announced = useRef(new Set<string>());
+  const announce = (key: string, message: string, tone: 'info' | 'success') => {
+    if (announced.current.has(key)) return false;
+    announced.current.add(key);
+    toast.show(message, tone);
+    return true;
+  };
+
   const signedIn = !!me.data;
   const liveMode = useStaffEvents(signedIn, (event) => {
     switch (event.type) {
       case 'reservation.created':
         void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
-        toast.show(s.res.newRequest, 'info');
-        if (soundRef.current) playChime();
+        if (announce(`r:${event.id}`, s.res.newRequest, 'info') && soundRef.current) playChime();
         break;
       case 'reservation.updated':
         void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
         break;
       case 'order.created':
         void queryClient.invalidateQueries({ queryKey: staffKeys.orders });
-        toast.show(s.orders.newOrder(event.tableNumber), 'success');
-        if (soundRef.current) playChime();
+        if (announce(`o:${event.id}`, s.orders.newOrder(event.tableNumber), 'success') && soundRef.current) playChime();
         break;
       case 'order.updated':
         void queryClient.invalidateQueries({ queryKey: staffKeys.orders });
@@ -189,29 +197,40 @@ export default function StaffApp() {
   const counts = useReservationCounts(live, signedIn);
   const openOrders = useOrders('open', live, signedIn);
 
-  // Without the live stream, new orders and booking requests are spotted by comparing polls.
+  // When the stream (re)connects, catch up on anything that happened while it was down.
+  useEffect(() => {
+    if (!live) return;
+    void queryClient.invalidateQueries({ queryKey: staffKeys.orders });
+    void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
+  }, [live, queryClient]);
+
+  // Orders and requests that appear in a refresh without a live event (polling, or missed while
+  // reconnecting) are announced too. Nothing is announced for what was already there on opening.
   const seenOrders = useRef<Set<number> | null>(null);
   useEffect(() => {
     const list = openOrders.data;
     if (!list) return;
     const seen = seenOrders.current;
     seenOrders.current = new Set(list.map((o) => o.id));
-    if (live || !seen) return; // announced by the stream / first load
-    const fresh = list.filter((o) => !seen.has(o.id) && o.status === 'received');
-    for (const o of fresh) toast.show(s.orders.newOrder(o.tableNumber), 'success');
-    if (fresh.length > 0 && soundRef.current) playChime();
-  }, [openOrders.data, live, toast, s]);
-  const pendingBefore = useRef<number | null>(null);
+    if (!seen) return;
+    let chime = false;
+    for (const o of list) {
+      if (!seen.has(o.id) && announce(`o:${o.id}`, s.orders.newOrder(o.tableNumber), 'success')) chime = true;
+    }
+    if (chime && soundRef.current) playChime();
+  }, [openOrders.data]); // once per refresh of the list
+  const latestRequest = useRef<number | null | undefined>(undefined);
   useEffect(() => {
-    const pending = counts.data?.pendingUpcoming;
-    if (pending === undefined) return;
-    const before = pendingBefore.current;
-    pendingBefore.current = pending;
-    if (live || before === null || pending <= before) return;
+    const latest = counts.data?.latestRequestId;
+    if (latest === undefined) return;
+    const before = latestRequest.current;
+    latestRequest.current = latest;
+    if (before === undefined || latest === null || (before !== null && latest <= before)) return;
     void queryClient.invalidateQueries({ queryKey: staffKeys.reservations });
-    toast.show(s.res.newRequest, 'info');
-    if (soundRef.current) playChime();
-  }, [counts.data?.pendingUpcoming, live, queryClient, toast, s]);
+    if (announce(`r:${latest}`, s.res.newRequest, 'info') && soundRef.current) playChime();
+  }, [counts.data?.latestRequestId]); // once per new value
+  // Polling paused (offline) or failing: say so instead of showing the green dot.
+  const stale = !live && (openOrders.fetchStatus === 'paused' || openOrders.isError);
 
   const logout = useMutation({
     mutationFn: () => api('/api/staff/logout', { method: 'POST' }),
@@ -251,10 +270,10 @@ export default function StaffApp() {
   const liveBadge = (
     <span className="inline-flex items-center gap-2 text-xs font-semibold" role="status">
       <span
-        className={cn('size-2 rounded-full', liveMode === 'connecting' ? 'bg-terracotta-400' : 'pulse-dot bg-[#86c778]')}
+        className={cn('size-2 rounded-full', liveMode === 'connecting' || stale ? 'bg-terracotta-400' : 'pulse-dot bg-[#86c778]')}
         aria-hidden
       />
-      {liveMode === 'live' ? s.live : liveMode === 'polling' ? s.autoRefresh : s.reconnecting}
+      {liveMode === 'live' ? s.live : liveMode === 'polling' && !stale ? s.autoRefresh : s.reconnecting}
     </span>
   );
   const soundButton = (

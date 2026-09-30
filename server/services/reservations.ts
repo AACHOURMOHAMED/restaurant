@@ -393,14 +393,17 @@ export async function listReservations(ctx: AppContext, q: ListQuery): Promise<S
   return staffView(ctx, rows);
 }
 
-export async function reservationCounts(ctx: AppContext): Promise<{ pendingUpcoming: number; today: LocalDate }> {
+export async function reservationCounts(
+  ctx: AppContext,
+): Promise<{ pendingUpcoming: number; today: LocalDate; latestRequestId: number | null }> {
   const settings = await getBookingSettings(ctx.db);
   const today = zonedNow(settings.timeZone, ctx.clock.now()).date;
-  const pending = await ctx.db.one<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM reservations WHERE status = 'pending' AND date >= ?`,
+  const row = await ctx.db.one<{ n: number; latest: number | null }>(
+    `SELECT (SELECT COUNT(*) FROM reservations WHERE status = 'pending' AND date >= ?) AS n,
+            (SELECT MAX(id) FROM reservations WHERE source = 'web') AS latest`,
     [today],
   );
-  return { pendingUpcoming: pending?.n ?? 0, today };
+  return { pendingUpcoming: row?.n ?? 0, today, latestRequestId: row?.latest ?? null };
 }
 
 export async function getStaffReservation(ctx: AppContext, id: number): Promise<StaffReservation> {

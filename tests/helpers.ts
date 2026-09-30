@@ -78,10 +78,18 @@ export async function closeTestDatabase(): Promise<void> {
 }
 
 export async function makeApp(
-  opts: { now?: string; rateLimit?: boolean; staticDir?: string; config?: Partial<AppConfig>; media?: MediaStore | null } = {},
+  opts: {
+    now?: string;
+    rateLimit?: boolean;
+    staticDir?: string;
+    /** Extra environment variables for loadConfig (e.g. VERCEL). */
+    env?: Record<string, string>;
+    config?: Partial<AppConfig>;
+    media?: MediaStore | null;
+  } = {},
 ): Promise<TestApp> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbpark-test-'));
-  const base = loadConfig({ NODE_ENV: 'test', DATA_DIR: dataDir, LOG_LEVEL: 'silent' });
+  const base = loadConfig({ NODE_ENV: 'test', DATA_DIR: dataDir, LOG_LEVEL: 'silent', ...opts.env });
   const config = {
     ...base,
     database: 'memory' as const,

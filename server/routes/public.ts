@@ -16,10 +16,9 @@ import { addDays, zonedNow } from '../../shared/time.js';
 import type { AppContext } from '../context.js';
 import { AppError, conflict } from '../errors.js';
 import { idempotencyKey, parse } from '../http.js';
-import { getPublicMenu } from '../repos/menu.js';
+import { getPublicMenu, hasDemoMenu } from '../repos/menu.js';
 import {
   getBookingSettings,
-  getFlag,
   getOrderingSettings,
   getMediaBase,
   getWeeklyHours,
@@ -52,7 +51,7 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
       getWeeklyHours(db),
       listSpecialDays(db, today, addDays(today, 90)),
       getOrderingSettings(db),
-      getFlag(db, 'demo_menu'),
+      hasDemoMenu(db),
       allTablesNumeric(db),
       getMediaBase(db, ctx.media?.defaultBase ?? null),
     ]);

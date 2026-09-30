@@ -106,7 +106,7 @@ export function DishSheet({ item, icon, mode, onClose, onAdd }: Props) {
       }
     >
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-ink-900">
-        <DishImage image={item.image} alt={name} icon={icon} sizes="(min-width: 640px) 672px, 100vw" priority showLabel />
+        <DishImage image={item.image} base={item.imageBase} alt={name} icon={icon} sizes="(min-width: 640px) 672px, 100vw" priority showLabel />
       </div>
       <div className="px-5 pt-6 pb-6 sm:px-7">
         <div className="flex flex-wrap items-center gap-2">

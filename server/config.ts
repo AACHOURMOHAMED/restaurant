@@ -1,3 +1,4 @@
+import net from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
 import type { DatabaseTarget } from './db.js';
@@ -45,6 +46,36 @@ const envSchema = z.object({
   STATIC_DIR: z.string().optional(),
 });
 
+/** Fastify's trustProxy: off, a list of proxy addresses, or a function of (address, hop). */
+export type TrustProxy = boolean | string | ((address: string, hop: number) => boolean);
+
+// Loopback and private networks: where a reverse proxy on the same machine (or a Docker host) connects from.
+const localNetworks = new net.BlockList();
+localNetworks.addSubnet('127.0.0.0', 8, 'ipv4');
+localNetworks.addSubnet('10.0.0.0', 8, 'ipv4');
+localNetworks.addSubnet('172.16.0.0', 12, 'ipv4');
+localNetworks.addSubnet('192.168.0.0', 16, 'ipv4');
+localNetworks.addSubnet('169.254.0.0', 16, 'ipv4');
+localNetworks.addAddress('::1', 'ipv6');
+localNetworks.addSubnet('fc00::', 7, 'ipv6');
+localNetworks.addSubnet('fe80::', 10, 'ipv6');
+
+export function isLocalAddress(address: string): boolean {
+  const v4 = address.startsWith('::ffff:') && net.isIPv4(address.slice(7)) ? address.slice(7) : address;
+  const type = net.isIPv4(v4) ? 'ipv4' : net.isIPv6(v4) ? 'ipv6' : null;
+  return type !== null && localNetworks.check(v4, type);
+}
+
+/**
+ * TRUST_PROXY=<n>: n proxies in front of the app, the nearest one connecting from this machine or a
+ * private network (Caddy/nginx on the host, Docker). Fastify ignores a bare hop count — it can't tell
+ * whether a request really came through the proxy — so the nearest hop's address is checked here:
+ * a visitor connecting directly can't choose their own address with X-Forwarded-For.
+ */
+export function trustHops(count: number): (address: string, hop: number) => boolean {
+  return (address, hop) => hop < count && (hop > 0 || isLocalAddress(address));
+}
+
 /** A mistake in the environment variables: reported as one clear message, without a stack trace. */
 export class ConfigError extends Error {}
 
@@ -62,7 +93,7 @@ export type AppConfig = {
   cronSecret: string | null;
   staticDir: string;
   publicUrl: string | null;
-  trustProxy: boolean | number | string;
+  trustProxy: TrustProxy;
   cookieSecure: boolean;
   sessionTtlMs: number;
   admin: { email: string; password: string; name: string } | null;
@@ -93,8 +124,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const productionUrl = e.VERCEL_PROJECT_PRODUCTION_URL ? `https://${e.VERCEL_PROJECT_PRODUCTION_URL.replace(/\/+$/, '')}` : undefined;
   const publicUrl = e.PUBLIC_URL ?? productionUrl;
 
-  // Vercel's edge replaces X-Forwarded-For with the visitor's address (one trusted hop).
-  let trustProxy: boolean | number | string = serverless ? 1 : false;
+  // Which X-Forwarded-For entries to believe, i.e. how the server learns each visitor's address
+  // (used by the rate limits and the sign-in/booking throttles).
+  // On Vercel the function is only reachable through Vercel's proxy, which replaces X-Forwarded-For
+  // with the visitor's address: trust exactly that one hop.
+  let trustProxy: TrustProxy = serverless ? (_address, hop) => hop === 0 : false;
   if (e.TRUST_PROXY) {
     // `true` would trust every X-Forwarded-For entry, which visitors can write themselves:
     // anyone could then pose as a new IP address on each request and bypass the rate limits.
@@ -103,7 +137,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         'Invalid environment configuration:\n  TRUST_PROXY: set the NUMBER of proxies in front of the app (usually 1), or their IP addresses — not "true".',
       );
     }
-    trustProxy = /^\d+$/.test(e.TRUST_PROXY) ? Number(e.TRUST_PROXY) : e.TRUST_PROXY;
+    trustProxy = /^\d+$/.test(e.TRUST_PROXY) ? trustHops(Number(e.TRUST_PROXY)) : e.TRUST_PROXY;
   }
 
   const fakeNow = e.NODE_ENV !== 'production' && e.FAKE_NOW ? new Date(e.FAKE_NOW) : null;

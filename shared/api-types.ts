@@ -66,6 +66,8 @@ export type MenuItemPublic = {
   descriptionEn: string | null;
   priceCents: number;
   image: string | null;
+  /** Where this dish's photo is served from; null → the site's current photo address (PublicSite.mediaBase). */
+  imageBase: string | null;
   dietary: DietaryLabel[];
   isSpecial: boolean;
   available: boolean;

@@ -111,20 +111,25 @@ export function postgresDb(pool: pg.Pool): Db {
     ...pgQueryable(pool, true),
     async tx(fn, opts) {
       assertOutsideTransaction();
-      const client = await pool.connect();
-      try {
-        // READ COMMITTED (the PostgreSQL default, pinned here): after taking the advisory lock, each
-        // statement sees everything committed before it, which is what the capacity checks rely on.
-        await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-        if (opts?.lock) await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [opts.lock]);
-        const result = await inTransaction.run(true, () => fn(pgQueryable(client, false)));
-        await client.query('COMMIT');
-        return result;
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => undefined);
-        throw err;
-      } finally {
-        client.release();
+      // Writers that could collide take an advisory lock, so a deadlock should never happen; if one
+      // still does, PostgreSQL cancels one transaction, which is simply run again.
+      for (let attempt = 1; ; attempt++) {
+        const client = await pool.connect();
+        try {
+          // READ COMMITTED (the PostgreSQL default, pinned here): after taking the advisory lock, each
+          // statement sees everything committed before it, which is what the capacity checks rely on.
+          await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+          if (opts?.lock) await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [opts.lock]);
+          const result = await inTransaction.run(true, () => fn(pgQueryable(client, false)));
+          await client.query('COMMIT');
+          return result;
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => undefined);
+          if (attempt < 3 && (err as { code?: string }).code === '40P01') continue;
+          throw err;
+        } finally {
+          client.release();
+        }
       }
     },
     async exec(sql) {
@@ -268,6 +273,11 @@ export async function openDatabase(target: DatabaseTarget): Promise<Db> {
   let db: Db;
   if (typeof target === 'object' && 'url' in target) {
     const pool = new pg.Pool({ connectionString: target.url, max: Number(process.env.PG_POOL_MAX ?? 5), idleTimeoutMillis: 10_000 });
+    // A connection dropped by the server (restart, idle timeout, Neon scaling to zero) must not crash
+    // the process: node-postgres reports it as an 'error' event, fatal when nobody listens. The query
+    // using it fails; the next one opens a fresh connection.
+    pool.on('error', (err) => console.warn('PostgreSQL: idle connection lost:', err.message));
+    pool.on('connect', (client) => client.on('error', (err) => console.warn('PostgreSQL: connection lost:', err.message)));
     if (process.env.VERCEL) {
       // Lets Vercel close idle connections before a function instance is suspended.
       const { attachDatabasePool } = await import('@vercel/functions');
@@ -510,6 +520,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
         at_ms BIGINT NOT NULL
       );
       CREATE INDEX idx_throttle_events ON throttle_events(key, at_ms);
+    `,
+  },
+  {
+    // Each dish photo remembers where it is stored: photos kept in Vercel Blob still show after a move to
+    // a server that stores new ones on disk (and vice versa). Existing photos take the site-wide address.
+    // Order amounts get 64-bit columns (PostgreSQL INTEGER stops at about 21 million dirhams in cents).
+    version: 2,
+    sql: /* sql */ `
+      ALTER TABLE menu_items ADD COLUMN image_base TEXT;
+      UPDATE menu_items SET image_base = (SELECT value::jsonb #>> '{}' FROM settings WHERE key = 'media_base')
+        WHERE image IS NOT NULL;
+      ALTER TABLE orders ALTER COLUMN total_cents TYPE BIGINT;
+      ALTER TABLE order_lines ALTER COLUMN unit_price_cents TYPE BIGINT;
+      ALTER TABLE order_lines ALTER COLUMN line_total_cents TYPE BIGINT;
     `,
   },
 ];

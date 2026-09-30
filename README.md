@@ -333,7 +333,7 @@ All optional. Copy [`.env.example`](.env.example) to `.env`.
 | `CRON_SECRET` | — | Vercel only: protects the daily clean-up job (`/api/cron/daily`) |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Where the server listens |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | — | Creates the first administrator when no staff account exists |
-| `TRUST_PROXY` | off (`1` on Vercel) | Behind a reverse proxy: the **number** of proxies (usually `1`) or their IP addresses. `true` is refused: it would let visitors fake their address and slip past the rate limits |
+| `TRUST_PROXY` | off (on Vercel: Vercel's proxy) | Behind a reverse proxy: the **number** of proxies (usually `1`; the nearest must connect from this machine or a private network, as Caddy/nginx on the host or Docker do) or their IP addresses. `true` is refused: it would let visitors fake their address and slip past the rate limits |
 | `COOKIE_SECURE` | `auto` | `auto` = HTTPS-only cookies, HSTS and HTTPS upgrades in production (the default for `npm start` and Docker) or when `PUBLIC_URL` is https. `false` only for testing over plain HTTP |
 | `SESSION_TTL_HOURS` | `168` | Staff sessions expire after 7 days |
 | `NOTIFY_WEBHOOK_URL` | — | See [Notifications](#notifications-and-integrations) |
@@ -476,7 +476,7 @@ scripts/               photo optimisation, compression, server bundling
 | The in-site scanner doesn't open the camera | It needs HTTPS and the guest's permission; entering the table number always works, as does the phone's camera app. |
 | Dashboard doesn't update live | On Vercel this is expected: it refreshes every few seconds (*Actualisation auto*). On your own server, check that your proxy doesn't buffer `/api/staff/events`; meanwhile the dashboard still refreshes every few seconds. |
 | Vercel: the API answers 503 "not ready" | Open the deployment's *Logs*: usually `DATABASE_URL` is missing — connect the Neon database (Storage tab), then redeploy. |
-| Vercel: "Photo storage is not set up" when uploading | Connect a **public** Blob store to the project (Storage tab), then redeploy. |
+| Vercel: *"Le stockage des photos n'est pas configuré"* when uploading a dish photo | Connect a **public** Blob store to the project (Storage tab), then redeploy. |
 | "The database … is being used by another process" | The embedded database is open in the running app: stop it before running a maintenance command (or use `DATABASE_URL`). |
 | "No staff account exists yet" in the logs | Set `ADMIN_EMAIL` / `ADMIN_PASSWORD` or run the `create-admin` command. |
 | Forgot a password | `reset-password --email …` (see [commands](#backups-updates-and-maintenance-commands)). |

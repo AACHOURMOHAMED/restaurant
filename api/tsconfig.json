@@ -1,3 +1,4 @@
 {
-  "extends": "../tsconfig.api.json"
+  "extends": "../tsconfig.api.json",
+  "compilerOptions": { "module": "NodeNext", "moduleResolution": "NodeNext", "target": "ES2022" }
 }

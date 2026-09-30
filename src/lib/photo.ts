@@ -16,7 +16,9 @@ export async function shrinkPhoto(file: File, maxSide = 2400, maxBytes = 2_500_0
     if (!context) return file;
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    // JPEG has no transparency (it would turn black): formats that may carry it are re-encoded as WebP.
+    const type = /png|webp|avif|gif/.test(file.type) ? 'image/webp' : 'image/jpeg';
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.88));
     return blob && blob.size < file.size ? blob : file;
   } catch {
     return file;

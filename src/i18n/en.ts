@@ -357,6 +357,11 @@ export const en: Dictionary = {
     TOO_MANY_ATTEMPTS: 'Too many attempts. Try again in a few minutes.',
     UNAUTHORIZED: 'Your session has expired. Please sign in again.',
     FORBIDDEN: 'Only administrators can do this.',
+    INVALID_IMAGE: 'This file isn’t a supported photo (JPEG, PNG, WebP…).',
+    IMAGE_TOO_SMALL: 'Photo too small: at least 300 × 200 pixels.',
+    IMAGE_TOO_LARGE: 'This photo is too large. Please choose a lighter one.',
+    UPLOADS_UNAVAILABLE: 'Photo storage isn’t set up: connect a public Blob store to the Vercel project (Storage tab), then redeploy.',
+    MENU_NOT_EMPTY: 'The menu already has categories.',
   },
 
   fields: {

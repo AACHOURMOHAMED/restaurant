@@ -38,8 +38,7 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
         req: (req) => ({ method: req.method, url: redactUrl(req.url), remoteAddress: req.ip }),
       },
     },
-    // Fastify accepts a hop count at runtime; its type definitions only omit it.
-    trustProxy: config.trustProxy as boolean | string,
+    trustProxy: config.trustProxy,
     bodyLimit: 256 * 1024,
   });
 
@@ -106,8 +105,10 @@ export async function buildApp(ctx: AppContext, opts: { logger?: FastifyServerOp
   await staffRoutes(app, ctx);
   await cronRoutes(app, ctx);
 
-  // Uploaded dish photos kept on disk: file names are unique, so they can be cached forever.
-  if (ctx.media?.defaultBase === '/uploads') {
+  // Uploaded dish photos kept on disk: file names are unique, so they can be cached forever. Also served
+  // after a switch to Blob storage, for the photos uploaded before it.
+  const diskPhotos = ctx.media?.defaultBase === '/uploads';
+  if (!config.serverless && (diskPhotos || fs.existsSync(config.uploadsDir))) {
     fs.mkdirSync(config.uploadsDir, { recursive: true });
     await app.register(fastifyStatic, {
       root: config.uploadsDir,

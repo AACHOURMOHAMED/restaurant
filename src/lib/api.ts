@@ -47,6 +47,8 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     try {
       data = JSON.parse(text);
     } catch {
+      // Hosting refusing a too-big upload before it reaches the server (Vercel: over 4.5 MB).
+      if (res.status === 413) throw new ApiError(413, 'IMAGE_TOO_LARGE', 'Upload too large');
       // Not JSON: typically a static host answering without the booking backend.
       throw new ApiError(res.status, 'BACKEND_UNAVAILABLE', 'The booking service is not reachable');
     }

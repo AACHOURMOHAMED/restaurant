@@ -152,7 +152,7 @@ function ItemEditor({
     try {
       const form = new FormData();
       const photo = await shrinkPhoto(file);
-      form.append('file', photo, photo === file ? file.name : 'photo.jpg');
+      form.append('file', photo, photo === file ? file.name : photo.type === 'image/webp' ? 'photo.webp' : 'photo.jpg');
       const res = await api<{ image: string }>('/api/staff/uploads/menu-image', { formData: form });
       setDraft((d) => ({ ...d, image: res.image }));
       // The first photo ever stored tells the site where photos are served from.
@@ -191,7 +191,13 @@ function ItemEditor({
                   <Spinner />
                 </div>
               ) : (
-                <DishImage image={draft.image} alt="" icon={iconForCategory(categoryName)} sizes="112px" />
+                <DishImage
+                  image={draft.image}
+                  base={draft.image === item?.image ? item?.imageBase : null}
+                  alt=""
+                  icon={iconForCategory(categoryName)}
+                  sizes="112px"
+                />
               )}
             </div>
             <div className="space-y-2">
@@ -435,7 +441,15 @@ export default function MenuPage() {
   });
   const deleteCategory = useMutation({ mutationFn: (id: number) => api(`/api/staff/menu/categories/${id}`, { method: 'DELETE' }), onSuccess: refresh, onError });
   const removeDemo = useMutation({ mutationFn: () => api('/api/staff/menu/demo/remove', { method: 'POST' }), onSuccess: refresh, onError });
-  const loadDemo = useMutation({ mutationFn: () => api('/api/staff/menu/demo/load', { method: 'POST' }), onSuccess: refresh, onError });
+  const loadDemo = useMutation({
+    mutationFn: () => api('/api/staff/menu/demo/load', { method: 'POST' }),
+    onSuccess: refresh,
+    // e.g. MENU_NOT_EMPTY after a colleague added categories: show the menu as it is now.
+    onError: (err) => {
+      onError(err);
+      refresh();
+    },
+  });
 
   const move = <T extends { id: number }>(list: T[], index: number, delta: number) => {
     const ids = list.map((x) => x.id);
@@ -548,7 +562,7 @@ export default function MenuPage() {
                   {c.items.map((item, ii) => (
                     <li key={item.id} className="flex flex-wrap items-center gap-3 py-3" data-testid="staff-menu-item">
                       <div className="size-14 shrink-0 overflow-hidden rounded-xl bg-ink-800">
-                        <DishImage image={item.image} alt="" icon={iconForCategory(c.name)} sizes="56px" />
+                        <DishImage image={item.image} base={item.imageBase} alt="" icon={iconForCategory(c.name)} sizes="56px" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className={cn('font-semibold', !item.visible && 'text-taupe-500 line-through')}>

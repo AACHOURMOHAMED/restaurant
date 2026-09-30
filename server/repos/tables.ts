@@ -130,7 +130,7 @@ export async function deleteTable(q: Queryable, id: number): Promise<void> {
 }
 
 export async function reorderTables(db: Db | Queryable, ids: number[]): Promise<void> {
-  await atomically(db, null, async (q) => {
+  await atomically(db, TABLES_LOCK, async (q) => {
     for (const [i, id] of ids.entries()) await q.run('UPDATE dining_tables SET sort_order = ? WHERE id = ?', [i + 1, rowId(id)]);
   });
 }

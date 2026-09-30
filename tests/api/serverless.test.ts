@@ -63,6 +63,30 @@ describe('serverless hosting', () => {
   });
 });
 
+describe('visitor addresses on Vercel', () => {
+  it("one visitor's failed sign-ins don't lock anyone else out", async () => {
+    // The real Vercel configuration: every request reaches the function from the platform's proxy
+    // (here 127.0.0.1), which puts the visitor's address in X-Forwarded-For.
+    t = await makeApp({ env: { VERCEL: '1', DATABASE_URL: 'postgres://unused@localhost/x' }, config: { database: 'memory' } });
+    const login = (ip: string, email: string, password: string) =>
+      t.app.inject({
+        method: 'POST',
+        url: '/api/staff/login',
+        remoteAddress: '127.0.0.1',
+        headers: { origin: ORIGIN, 'x-forwarded-for': ip },
+        payload: { email, password },
+      });
+    const attacker = '198.51.100.66';
+    // 5 wrong passwords for the admin's account, then 15 more for other accounts: both limits reached…
+    for (let i = 0; i < 5; i++) expect((await login(attacker, ADMIN.email, 'wrong-password')).statusCode).toBe(401);
+    expect((await login(attacker, ADMIN.email, 'wrong-password')).statusCode).toBe(429);
+    for (let i = 0; i < 15; i++) expect((await login(attacker, `nobody${i}@test.local`, 'wrong-password')).statusCode).toBe(401);
+    expect((await login(attacker, 'someone@test.local', 'wrong-password')).statusCode).toBe(429);
+    // …for that visitor only: the admin, elsewhere, still signs in.
+    expect((await login('41.250.10.20', ADMIN.email, ADMIN.password)).statusCode).toBe(200);
+  });
+});
+
 describe('throttles shared through the database', () => {
   it('lets no more than 5 wrong passwords through, even all at once', async () => {
     t = await makeApp();

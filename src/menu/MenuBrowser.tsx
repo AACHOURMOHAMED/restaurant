@@ -50,6 +50,7 @@ function DishRow({
         <div className="relative size-20 shrink-0 overflow-hidden rounded-2xl bg-ink-800 sm:size-24">
           <DishImage
             image={item.image}
+            base={item.imageBase}
             alt=""
             icon={icon}
             sizes="96px"

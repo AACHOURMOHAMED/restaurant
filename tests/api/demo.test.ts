@@ -37,6 +37,7 @@ describe('sample menu photos', () => {
     const menu = (await t.app.inject('/api/public/menu')).json();
     const soup = menu.categories.flatMap((c: { items: { name: string; image: string | null }[] }) => c.items).find((i: { name: string }) => i.name === 'Soupe de poisson');
     expect(soup.image).toMatch(/^[a-z0-9-]+$/);
+    expect(soup.imageBase).toBe('/uploads'); // each photo remembers where it is stored
     const files = () => fs.readdirSync(path.join(t.ctx.config.uploadsDir, 'menu'));
     expect(files().filter((f) => f.startsWith(soup.image))).toHaveLength(3);
 

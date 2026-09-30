@@ -12,7 +12,7 @@ import type { DietaryLabel } from '../../shared/constants.js';
 import type { menuCategoryInputSchema, menuItemInputSchema, menuItemPatchSchema } from '../../shared/schemas.js';
 import { atomically, type Db, type Queryable, rowId } from '../db.js';
 import { badRequest, notFound } from '../errors.js';
-import { getFlag, menuUpdatedAt, setFlag, touchMenu } from './settings.js';
+import { getMediaBase, menuUpdatedAt, touchMenu } from './settings.js';
 
 /**
  * Advisory lock held by menu changes that read before they write (next sort position, "does this
@@ -38,6 +38,7 @@ type ItemRow = {
   description_en: string | null;
   price_cents: number;
   image: string | null;
+  image_base: string | null;
   dietary: string;
   available: number;
   visible: number;
@@ -117,6 +118,7 @@ function toItem(r: ItemRow, groups: Map<number, MenuOptionGroupPublic[]>): Staff
     descriptionEn: r.description_en,
     priceCents: r.price_cents,
     image: r.image,
+    imageBase: r.image_base,
     dietary: JSON.parse(r.dietary) as DietaryLabel[],
     isSpecial: r.is_special === 1,
     available: r.available === 1,
@@ -157,7 +159,7 @@ export async function getPublicMenu(q: Queryable): Promise<PublicMenu> {
 }
 
 export async function getStaffMenu(q: Queryable): Promise<StaffMenu> {
-  return { categories: await loadMenu(q, false), demo: await getFlag(q, 'demo_menu') };
+  return { categories: await loadMenu(q, false), demo: await hasDemoMenu(q) };
 }
 
 /** Items (with options) that can currently be ordered, keyed by id. */
@@ -209,7 +211,7 @@ export async function deleteCategory(db: Db | Queryable, id: number): Promise<vo
 }
 
 export async function reorderCategories(db: Db | Queryable, ids: number[]): Promise<void> {
-  await atomically(db, null, async (q) => {
+  await atomically(db, MENU_LOCK, async (q) => {
     for (const [i, id] of ids.entries()) await q.run('UPDATE menu_categories SET sort_order = ? WHERE id = ?', [i + 1, rowId(id)]);
     await touchMenu(q);
   });
@@ -287,9 +289,9 @@ export async function createItem(
     ]))!;
     const ts = now.toISOString();
     const { id } = (await q.one<{ id: number }>(
-      `INSERT INTO menu_items (category_id, name, name_en, description, description_en, price_cents, image, dietary,
+      `INSERT INTO menu_items (category_id, name, name_en, description, description_en, price_cents, image, image_base, dietary,
          available, visible, is_special, sort_order, is_demo, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [
         input.categoryId,
         input.name,
@@ -298,6 +300,7 @@ export async function createItem(
         input.descriptionEn,
         input.priceCents,
         input.image,
+        input.image ? await getMediaBase(q, null) : null,
         JSON.stringify(input.dietary),
         input.available ? 1 : 0,
         input.visible ? 1 : 0,
@@ -322,8 +325,13 @@ export async function getItemImage(q: Queryable, id: number): Promise<string | n
 export async function updateItem(db: Db | Queryable, id: number, input: ItemInput, now: Date): Promise<void> {
   await atomically(db, MENU_LOCK, async (q) => {
     await assertCategory(q, input.categoryId);
-    const current = await q.one<{ category_id: number }>('SELECT category_id FROM menu_items WHERE id = ?', [rowId(id)]);
+    const current = await q.one<{ category_id: number; image: string | null; image_base: string | null }>(
+      'SELECT category_id, image, image_base FROM menu_items WHERE id = ?',
+      [rowId(id)],
+    );
     if (!current) throw notFound('Menu item');
+    // A new photo is where the latest upload went; an unchanged one stays where it is.
+    const imageBase = input.image === current.image ? current.image_base : input.image ? await getMediaBase(q, null) : null;
     let sortClause = '';
     const params: unknown[] = [];
     if (current.category_id !== input.categoryId) {
@@ -335,7 +343,7 @@ export async function updateItem(db: Db | Queryable, id: number, input: ItemInpu
     }
     await q.run(
       `UPDATE menu_items SET category_id = ?, name = ?, name_en = ?, description = ?, description_en = ?, price_cents = ?,
-         image = ?, dietary = ?, available = ?, visible = ?, is_special = ?, updated_at = ?${sortClause}
+         image = ?, image_base = ?, dietary = ?, available = ?, visible = ?, is_special = ?, updated_at = ?${sortClause}
        WHERE id = ?`,
       [
         input.categoryId,
@@ -345,6 +353,7 @@ export async function updateItem(db: Db | Queryable, id: number, input: ItemInpu
         input.descriptionEn,
         input.priceCents,
         input.image,
+        imageBase,
         JSON.stringify(input.dietary),
         input.available ? 1 : 0,
         input.visible ? 1 : 0,
@@ -387,7 +396,7 @@ export async function deleteItem(db: Db | Queryable, id: number): Promise<string
 }
 
 export async function reorderItems(db: Db | Queryable, ids: number[]): Promise<void> {
-  await atomically(db, null, async (q) => {
+  await atomically(db, MENU_LOCK, async (q) => {
     for (const [i, id] of ids.entries()) await q.run('UPDATE menu_items SET sort_order = ? WHERE id = ?', [i + 1, rowId(id)]);
     await touchMenu(q);
   });
@@ -408,12 +417,22 @@ export async function deleteDemoMenu(db: Db | Queryable): Promise<string[]> {
       'DELETE FROM menu_categories WHERE is_demo = 1 AND NOT EXISTS (SELECT 1 FROM menu_items WHERE category_id = menu_categories.id)',
     );
     await q.run('UPDATE menu_categories SET is_demo = 0');
-    await setFlag(q, 'demo_menu', false);
     await touchMenu(q);
     const unused: string[] = [];
     for (const image of images) if (!(await imageInUse(q, image))) unused.push(image);
     return unused;
   });
+}
+
+/**
+ * Whether sample dishes or categories are on the menu (the site then says it's a sample menu).
+ * Read from the menu itself, so it stays right however the sample is removed.
+ */
+export async function hasDemoMenu(q: Queryable): Promise<boolean> {
+  const row = await q.one<{ demo: boolean }>(
+    'SELECT EXISTS (SELECT 1 FROM menu_items WHERE is_demo = 1) OR EXISTS (SELECT 1 FROM menu_categories WHERE is_demo = 1) AS demo',
+  );
+  return row?.demo === true;
 }
 
 export async function markCategoryDemo(q: Queryable, id: number): Promise<void> {

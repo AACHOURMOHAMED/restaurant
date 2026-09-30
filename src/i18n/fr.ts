@@ -357,6 +357,12 @@ export const fr = {
     TOO_MANY_ATTEMPTS: 'Trop de tentatives. Réessayez dans quelques minutes.',
     UNAUTHORIZED: 'Session expirée. Merci de vous reconnecter.',
     FORBIDDEN: 'Action réservée aux administrateurs.',
+    INVALID_IMAGE: 'Ce fichier n’est pas une photo reconnue (JPEG, PNG, WebP…).',
+    IMAGE_TOO_SMALL: 'Photo trop petite : au moins 300 × 200 pixels.',
+    IMAGE_TOO_LARGE: 'Photo trop lourde. Choisissez une photo plus légère.',
+    UPLOADS_UNAVAILABLE:
+      'Le stockage des photos n’est pas configuré : connectez un Blob store public au projet Vercel (onglet Storage), puis redéployez.',
+    MENU_NOT_EMPTY: 'La carte contient déjà des catégories.',
   } as Record<string, string>,
 
   fields: {

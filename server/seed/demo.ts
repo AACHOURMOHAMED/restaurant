@@ -12,8 +12,8 @@ import path from 'node:path';
 import type { MenuItemInput } from '../../shared/schemas.js';
 import { menuItemInputSchema } from '../../shared/schemas.js';
 import type { Db } from '../db.js';
-import { createCategory, createItem, markCategoryDemo, MENU_LOCK } from '../repos/menu.js';
-import { getFlag, setFlag, setMediaBase, touchMenu } from '../repos/settings.js';
+import { createCategory, createItem, hasDemoMenu, markCategoryDemo, MENU_LOCK } from '../repos/menu.js';
+import { setMediaBase, touchMenu } from '../repos/settings.js';
 import { createTable, listTables, TABLES_LOCK } from '../repos/tables.js';
 import { deleteMenuImage, processMenuImage } from '../services/images.js';
 import type { MediaStore } from '../storage.js';
@@ -268,7 +268,7 @@ const DEMO_MENU: DemoCategory[] = [
 export async function seedDemoMenu(db: Db, now = new Date()): Promise<void> {
   await db.tx(
     async (tx) => {
-      if (await getFlag(tx, 'demo_menu')) return;
+      if (await hasDemoMenu(tx)) return;
       for (const cat of DEMO_MENU) {
         const categoryId = await createCategory(
           tx,
@@ -280,7 +280,6 @@ export async function seedDemoMenu(db: Db, now = new Date()): Promise<void> {
           await createItem(tx, menuItemInputSchema.parse({ ...item, categoryId }), now, { demo: true });
         }
       }
-      await setFlag(tx, 'demo_menu', true);
     },
     { lock: MENU_LOCK },
   );
@@ -322,7 +321,7 @@ export async function attachDemoPhotos(db: Db, store: MediaStore, dir = path.res
       baseSaved = true;
     }
     // Only onto a dish still without a photo: another run may have attached one meanwhile.
-    if ((await db.run('UPDATE menu_items SET image = ? WHERE id = ? AND image IS NULL', [image, dish.id])) === 0) {
+    if ((await db.run('UPDATE menu_items SET image = ?, image_base = ? WHERE id = ? AND image IS NULL', [image, base, dish.id])) === 0) {
       await deleteMenuImage(image, store);
       continue;
     }

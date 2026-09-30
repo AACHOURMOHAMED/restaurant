@@ -22,8 +22,7 @@ import { passwordSchema, staffUserCreateSchema } from '../shared/schemas.js';
 import { createContext } from './bootstrap.js';
 import { loadConfig } from './config.js';
 import { restoreEmbedded } from './db.js';
-import { deleteDemoMenu } from './repos/menu.js';
-import { getFlag } from './repos/settings.js';
+import { deleteDemoMenu, hasDemoMenu } from './repos/menu.js';
 import { createUser, updateUser } from './services/auth.js';
 import { deleteMenuImage } from './services/images.js';
 import { anonymizeOldReservations } from './services/reservations.js';
@@ -95,7 +94,7 @@ async function main() {
         console.log('Add --demo to load the sample menu and sample tables.');
         break;
       }
-      if (await getFlag(db, 'demo_menu')) console.log('Sample menu already loaded — skipping menu.');
+      if (await hasDemoMenu(db)) console.log('Sample menu already loaded — skipping menu.');
       else await seedDemoMenu(db, now);
       await seedDemoTables(db, now);
       const photos = media ? await attachDemoPhotos(db, media) : 0;
