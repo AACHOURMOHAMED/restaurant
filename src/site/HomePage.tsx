@@ -7,6 +7,7 @@ import { AtTable } from './sections/AtTable';
 import { Gallery } from './sections/Gallery';
 import { Atelier } from './sections/Atelier';
 import { Hero } from './sections/Hero';
+import { Marquee } from './sections/Marquee';
 import { MenuSection } from './sections/MenuSection';
 import { Specials } from './sections/Specials';
 import { Story } from './sections/Story';
@@ -29,6 +30,7 @@ export function HomePage() {
   return (
     <>
       <Hero />
+      <Marquee />
       <Story />
       <Specials />
       <Atelier />

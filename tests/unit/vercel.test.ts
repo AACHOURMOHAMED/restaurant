@@ -7,6 +7,7 @@ const vercel = JSON.parse(fs.readFileSync('vercel.json', 'utf8')) as {
   headers: { source: string; headers: Header[] }[];
   rewrites: { source: string; destination: string }[];
   crons: { path: string }[];
+  functions: Record<string, { maxDuration?: number; includeFiles?: string }>;
 };
 
 describe('vercel.json', () => {
@@ -22,5 +23,10 @@ describe('vercel.json', () => {
     expect(vercel.rewrites[0]).toEqual({ source: '/api/(.*)', destination: '/api/index' });
     expect(vercel.rewrites[1]!.destination).toBe('/index.html');
     expect(vercel.crons.map((c) => c.path)).toEqual(['/api/cron/daily']);
+  });
+
+  it('ships the sample dish photos with the API function (dashboard → "load the sample menu")', () => {
+    expect(vercel.functions['api/index.ts']?.includeFiles).toBe('content/photos/menu/**');
+    expect(fs.readdirSync('content/photos/menu').some((f) => /\.(jpe?g|png|webp)$/i.test(f))).toBe(true);
   });
 });

@@ -28,6 +28,8 @@ export const fr = {
     demoMenu: `Menu d’exemple pour la démonstration${nb}: ce ne sont pas les plats ni les prix de B&B Park.`,
     dismiss: 'Masquer',
     photo: 'Photo à venir',
+    /** Caption of photos listed in `restaurant.illustrations` (AI-generated stand-ins) and of sample-menu dish photos. */
+    illustration: 'Photo d’illustration',
     backendDown: `Mode démo${nb}: le service de réservation n’est pas joignable. Aucune réservation ni commande ne peut être envoyée pour le moment.`,
   },
 
@@ -35,6 +37,21 @@ export const fr = {
     reserve: 'Réserver une table',
     viewMenu: 'Voir la carte',
     scroll: 'Découvrir',
+    /** Caption of the hero photos listed in `restaurant.illustrations` (AI-generated stand-ins). */
+    illustration: 'Photo d’illustration',
+  },
+
+  /** Band of words under the hero — only facts stated elsewhere on the site (subtitle, story, atelier). */
+  marquee: {
+    label: 'B&B Park en quelques mots',
+    items: [
+      'Poisson frais chaque jour',
+      'Fruits de mer',
+      'Tradition marocaine, touche moderne',
+      'Saveurs du monde',
+      'Pizzas',
+      'Sur place, à emporter ou en livraison',
+    ],
   },
 
   status: {
@@ -56,6 +73,7 @@ export const fr = {
     eyebrow: 'Suggestions du chef',
     title: 'Les incontournables',
     cta: 'Voir toute la carte',
+    details: 'Découvrir le plat',
   },
 
   atelier: {
@@ -66,11 +84,15 @@ export const fr = {
       { title: 'La pâte', text: 'Une base souple, étirée jusqu’au bord.' },
       { title: 'La sauce', text: 'Tomate, ail et huile d’olive, étalés en spirale.' },
       { title: 'La mozzarella', text: 'Généreuse, pour des bords qui filent.' },
-      { title: 'Les fruits de mer', text: 'Crevettes, calamars, olives et basilic : la mer s’invite sur la pizza.' },
+      { title: 'Les fruits de mer', text: `Crevettes, calamars, moules, olives et basilic${nb}: la mer s’invite sur la pizza.` },
       { title: 'Le four', text: 'Quelques minutes de chaleur, une croûte dorée.' },
       { title: 'Prête à partir', text: 'Sur place, à emporter ou en livraison — encore chaude.' },
     ],
     cta: 'Voir la carte',
+    /** Caption of the (AI-generated) photo glimpsed behind the oven step. */
+    illustration: 'Photo d’illustration',
+    /** Words printed on the drawn pizza box. */
+    box: { greeting: 'Bon appétit', since: (year: number) => `Depuis ${year}` },
   },
 
   menu: {
@@ -129,6 +151,7 @@ export const fr = {
     next: 'Photo suivante',
     previous: 'Photo précédente',
     placeholder: 'Les photos du restaurant seront ajoutées prochainement.',
+    instagram: 'Suivez-nous sur Instagram',
   },
 
   atTable: {

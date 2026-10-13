@@ -90,12 +90,16 @@ export const restaurant = {
     photo: null as string | null,
   },
 
-  /** Gallery photos (files in content/photos/). TO REPLACE with the restaurant's own photos. */
+  /**
+   * Gallery photos (files in content/photos/), shown in this order in groups of four: a landscape photo,
+   * two portrait-friendly ones, then a wide strip (any photo works, it is cropped to its frame).
+   * TO REPLACE with the restaurant's own photos.
+   */
   gallery: [
-    { photo: 'illustration-braises.jpg', alt: { fr: 'Flammes d’un four à bois', en: 'Flames in a wood-fired oven' } },
     { photo: 'illustration-table-poissons.jpg', alt: { fr: 'Poisson grillé et crevettes sur une table aux chandelles', en: 'Grilled fish and prawns on a candle-lit table' } },
-    { photo: 'illustration-pizza-four.jpg', alt: { fr: 'Pizza dans un four à bois', en: 'Pizza in a wood-fired oven' } },
+    { photo: 'illustration-braises.jpg', alt: { fr: 'Flammes d’un four à bois', en: 'Flames in a wood-fired oven' } },
     { photo: 'illustration-the-bougie.jpg', alt: { fr: 'Thé à la menthe et bougie', en: 'Mint tea and a candle' } },
+    { photo: 'illustration-pizza-four.jpg', alt: { fr: 'Pizza dans un four à bois', en: 'Pizza in a wood-fired oven' } },
   ] as { photo: string; alt: Localized }[],
 
   /**
