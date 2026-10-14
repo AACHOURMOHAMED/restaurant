@@ -40,7 +40,7 @@ import {
   upsertSpecialDay,
 } from '../repos/settings.js';
 import * as tables from '../repos/tables.js';
-import { seedDemoMenu } from '../seed/demo.js';
+import { attachDemoPhotos, seedDemoMenu } from '../seed/demo.js';
 import {
   changeOwnPassword,
   createSession,
@@ -339,6 +339,11 @@ export async function staffRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post('/api/staff/menu/demo/load', admin, async () => {
     if ((await menu.getStaffMenu(db)).categories.length > 0) throw conflict('MENU_NOT_EMPTY', 'The menu already has categories');
     await seedDemoMenu(db, now());
+    // Sample dish photos (content/photos/menu, shipped with the function on Vercel) go through the same
+    // store as dashboard uploads. A photo that fails leaves its dish with the placeholder; the menu stays.
+    if (ctx.media) {
+      await attachDemoPhotos(db, ctx.media).catch((err: unknown) => app.log.warn({ err }, 'could not attach the sample dish photos'));
+    }
     menuChanged();
     return { ok: true };
   });

@@ -27,6 +27,7 @@ export const en: Dictionary = {
     demoMenu: 'Sample menu for demonstration: these are not B&B Park’s dishes or prices.',
     dismiss: 'Hide',
     photo: 'Photo coming soon',
+    illustration: 'Illustrative photo',
     backendDown:
       'Demo mode: the booking service cannot be reached. No reservation or order can be sent right now.',
   },
@@ -35,6 +36,19 @@ export const en: Dictionary = {
     reserve: 'Reserve a table',
     viewMenu: 'View menu',
     scroll: 'Discover',
+    illustration: 'Illustrative photo',
+  },
+
+  marquee: {
+    label: 'B&B Park in a few words',
+    items: [
+      'Fresh fish every day',
+      'Seafood',
+      'Moroccan tradition, modern touch',
+      'Flavours of the world',
+      'Pizzas',
+      'Dine in, take away or delivered',
+    ],
   },
 
   status: {
@@ -56,6 +70,7 @@ export const en: Dictionary = {
     eyebrow: 'Chef’s specials',
     title: 'Signature dishes',
     cta: 'See the full menu',
+    details: 'View the dish',
   },
 
   atelier: {
@@ -66,11 +81,13 @@ export const en: Dictionary = {
       { title: 'The dough', text: 'A soft base, stretched out to the edge.' },
       { title: 'The sauce', text: 'Tomato, garlic and olive oil, spread in a spiral.' },
       { title: 'The mozzarella', text: 'Generous, for edges that melt and stretch.' },
-      { title: 'Seafood', text: 'Prawns, squid, olives and basil: the sea comes to the pizza.' },
+      { title: 'Seafood', text: 'Prawns, squid, mussels, olives and basil: the sea comes to the pizza.' },
       { title: 'The oven', text: 'A few minutes of heat, a golden crust.' },
       { title: 'Ready to go', text: 'Dine in, take away or delivered — still warm.' },
     ],
     cta: 'See the menu',
+    illustration: 'Illustrative photo',
+    box: { greeting: 'Bon appétit', since: (year: number) => `Since ${year}` },
   },
 
   menu: {
@@ -129,6 +146,7 @@ export const en: Dictionary = {
     next: 'Next photo',
     previous: 'Previous photo',
     placeholder: 'Photos of the restaurant will be added soon.',
+    instagram: 'Follow us on Instagram',
   },
 
   atTable: {

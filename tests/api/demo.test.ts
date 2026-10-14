@@ -45,4 +45,38 @@ describe('sample menu photos', () => {
     expect((await staff('POST', '/api/staff/menu/demo/remove')).statusCode).toBe(200);
     expect(files()).toHaveLength(0);
   });
+
+  it('attaches the sample photos shipped in content/photos/menu when the dashboard loads the sample menu', async () => {
+    const shipped = fs
+      .readdirSync(path.resolve('content/photos/menu'))
+      .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+      .map((f) => f.replace(/\.[^.]+$/, ''));
+    expect(shipped.length).toBeGreaterThan(0);
+
+    const staff = await t.login();
+    expect((await staff('POST', '/api/staff/menu/demo/load')).statusCode).toBe(200);
+
+    type Item = { name: string; image: string | null; imageBase: string | null };
+    const items: Item[] = (await t.app.inject('/api/public/menu')).json().categories.flatMap((c: { items: Item[] }) => c.items);
+    const withPhoto = items.filter((i) => i.image);
+    const expected = items.filter((i) => shipped.includes(dishPhotoName(i.name)));
+    expect(expected.length).toBeGreaterThan(0);
+    expect(withPhoto.map((i) => i.name).sort()).toEqual(expected.map((i) => i.name).sort());
+    expect(withPhoto.every((i) => i.imageBase === '/uploads')).toBe(true);
+    const files = fs.readdirSync(path.join(t.ctx.config.uploadsDir, 'menu'));
+    for (const dish of withPhoto) expect(files.filter((f) => f.startsWith(dish.image!))).toHaveLength(3);
+  });
+});
+
+describe('sample menu without photo storage', () => {
+  it('still loads the sample menu (dishes keep their placeholders)', async () => {
+    await t.close();
+    t = await makeApp({ media: null });
+    const staff = await t.login();
+    expect((await staff('POST', '/api/staff/menu/demo/load')).statusCode).toBe(200);
+    const menu = (await t.app.inject('/api/public/menu')).json();
+    const items = menu.categories.flatMap((c: { items: { image: string | null }[] }) => c.items);
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i: { image: string | null }) => i.image === null)).toBe(true);
+  });
 });

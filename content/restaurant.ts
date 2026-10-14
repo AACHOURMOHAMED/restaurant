@@ -54,8 +54,10 @@ export const restaurant = {
       fr: 'Poissons frais, fruits de mer et saveurs du monde, au cœur de Kénitra.',
       en: 'Fresh fish, seafood and flavours of the world, in the heart of Kénitra.',
     } as Localized,
-    /** File in content/photos/. TO PROVIDE. */
-    photo: null as string | null,
+    /** File in content/photos/ (main hero image, also the link-preview image). TO REPLACE with the restaurant's own photo. */
+    photo: 'illustration-table-poissons.jpg' as string | null,
+    /** Hero images shown one after the other (slow cross-fade). The first one is `photo`. */
+    slides: ['illustration-table-poissons.jpg', 'illustration-four-a-bois.jpg'] as string[],
   },
 
   /** Source: bandbpark.ma "Notre Histoire" + blog article on seafood (paraphrased — TO CONFIRM wording). */
@@ -75,8 +77,10 @@ export const restaurant = {
         en: 'Renowned for fish and seafood, the kitchen draws on traditional Moroccan recipes with a modern touch. Fresh fish is selected every day before being grilled or cooked.',
       },
     ] as Localized[],
-    /** File in content/photos/. TO PROVIDE. */
-    photo: null as string | null,
+    /** File in content/photos/. TO REPLACE with the restaurant's own photo. */
+    photo: 'illustration-four-flammes.jpg' as string | null,
+    /** Smaller second photo beside the main one. */
+    detailPhoto: 'illustration-the-bougie.jpg' as string | null,
   },
 
   /** Chef details are unknown — leave null until provided. */
@@ -86,8 +90,31 @@ export const restaurant = {
     photo: null as string | null,
   },
 
-  /** Gallery photos (files in content/photos/). TO PROVIDE. */
-  gallery: [] as { photo: string; alt: Localized }[],
+  /**
+   * Gallery photos (files in content/photos/), shown in this order in groups of four: a landscape photo,
+   * two portrait-friendly ones, then a wide strip (any photo works, it is cropped to its frame).
+   * TO REPLACE with the restaurant's own photos.
+   */
+  gallery: [
+    { photo: 'illustration-table-poissons.jpg', alt: { fr: 'Poisson grillé et crevettes sur une table aux chandelles', en: 'Grilled fish and prawns on a candle-lit table' } },
+    { photo: 'illustration-braises.jpg', alt: { fr: 'Flammes d’un four à bois', en: 'Flames in a wood-fired oven' } },
+    { photo: 'illustration-the-bougie.jpg', alt: { fr: 'Thé à la menthe et bougie', en: 'Mint tea and a candle' } },
+    { photo: 'illustration-pizza-four.jpg', alt: { fr: 'Pizza dans un four à bois', en: 'Pizza in a wood-fired oven' } },
+  ] as { photo: string; alt: Localized }[],
+
+  /**
+   * Photos that only ILLUSTRATE the cuisine — AI-generated stand-ins (see content/photos/CREDITS.md), not
+   * pictures of B&B Park, its dishes or its rooms. The site captions them as such. Remove a name from this
+   * list only when the file is replaced by a real photo of the restaurant.
+   */
+  illustrations: [
+    'illustration-table-poissons.jpg',
+    'illustration-four-a-bois.jpg',
+    'illustration-four-flammes.jpg',
+    'illustration-braises.jpg',
+    'illustration-the-bougie.jpg',
+    'illustration-pizza-four.jpg',
+  ] as string[],
 
   contact: {
     /** Source: B&B Park Facebook posts ("☎ 0537370624"). */

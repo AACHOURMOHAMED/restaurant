@@ -207,21 +207,21 @@ function Header({ overlay }: { overlay: boolean }) {
                 key={s.id}
                 type="button"
                 onClick={() => goSection(s.id)}
-                className="rounded-full px-3.5 py-2 text-[13px] font-semibold tracking-wide text-cream-100/85 transition-colors hover:text-gold-300"
+                className="rounded-full px-2.5 py-2 text-[13px] font-semibold tracking-wide whitespace-nowrap text-cream-100/85 transition-colors hover:text-gold-300 xl:px-3.5"
               >
                 {t.nav[s.key]}
               </button>
             ))}
             <Link
               to="/table"
-              className="rounded-full px-3.5 py-2 text-[13px] font-semibold tracking-wide text-cream-100/85 transition-colors hover:text-gold-300"
+              className="rounded-full px-2.5 py-2 text-[13px] font-semibold tracking-wide whitespace-nowrap text-cream-100/85 transition-colors hover:text-gold-300 xl:px-3.5"
             >
               {t.nav.atTable}
             </Link>
           </nav>
           <div className="flex items-center gap-2">
             <LanguageSwitch />
-            <ButtonLink to="/reservation" variant="gold" size="sm" className="hidden h-10 px-5 md:inline-flex">
+            <ButtonLink to="/reservation" variant="gold" size="sm" className="hidden h-10 px-5 whitespace-nowrap md:inline-flex">
               {t.nav.reserveTable}
             </ButtonLink>
             <IconButton label={t.nav.openMenu} onClick={() => setNavOpen(true)} className="text-cream-50 hover:bg-cream-50/10 lg:hidden">
@@ -273,7 +273,7 @@ function MobileActionBar({ hideOnPaths }: { hideOnPaths: boolean }) {
         <Link
           to="/reservation"
           tabIndex={visible ? 0 : -1}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-gold-400 text-[15px] font-bold tracking-wide text-ink-950 shadow-glow active:scale-[0.98]"
+          className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-gold-400 px-3 text-[15px] font-bold tracking-wide whitespace-nowrap text-ink-950 shadow-glow active:scale-[0.98] max-[22.5rem]:gap-1.5 max-[22.5rem]:text-[14px] max-[22.5rem]:tracking-normal"
         >
           <CalendarDays className="size-5" aria-hidden />
           {t.nav.reserveTable}

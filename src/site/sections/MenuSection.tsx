@@ -1,6 +1,6 @@
-import { QrCode } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { ButtonLink, Notice, Spinner } from '@/components/ui';
+import { Notice, Spinner } from '@/components/ui';
 import { useI18n } from '@/i18n';
 import { loadGsap, useReveal } from '@/lib/motion';
 import { useMenu, useSite } from '@/lib/queries';
@@ -62,16 +62,12 @@ export function MenuSection() {
           )}
         </div>
 
-        <div className="mt-16 flex flex-col items-start gap-6 rounded-[2rem] bg-ink-900 p-7 text-cream-50 sm:flex-row sm:items-center sm:justify-between md:p-9" data-reveal>
-          <div>
-            <p className="font-display text-2xl md:text-3xl">{t.menu.orderCta}</p>
-            <p className="mt-2 text-sm text-cream-100/65">{t.menu.allergens}</p>
-          </div>
-          <ButtonLink to="/table" variant="gold" className="shrink-0">
-            <QrCode className="size-4.5" aria-hidden />
-            {t.nav.atTable}
-          </ButtonLink>
-        </div>
+        {/* The "already seated? order from your phone" invitation is the section right below (AtTable):
+            the menu only closes on the allergy note. */}
+        <p className="mt-14 flex items-start gap-3 border-t border-ink-900/10 pt-6 text-sm leading-relaxed text-taupe-600 md:mt-16" data-reveal>
+          <Info className="mt-0.5 size-4 shrink-0 text-gold-600" aria-hidden />
+          {t.menu.allergens}
+        </p>
       </div>
     </section>
   );

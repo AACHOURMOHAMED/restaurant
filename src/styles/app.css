@@ -280,3 +280,192 @@
     min-inline-size: 0;
   }
 }
+
+/* ─── Hero: cinematic photo slideshow ───────────────────────────────────────────────────────────
+   Phones/tablets: the photo is a tall band at the top and the text sits below it, over the band's
+   fade to black (the dishes in the photos sit low in the frame, so they stay clear of the text).
+   Desktop (lg): full-bleed photo, text on the dark left side. */
+.hero {
+  --hero-photo-h: clamp(23rem, 68svh, 46rem);
+}
+.hero-slide {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 2.2s cubic-bezier(0.45, 0, 0.55, 1); /* keep in sync with FADE_MS in Hero.tsx */
+}
+.hero-slide[data-state='active'] {
+  opacity: 1;
+  z-index: 2;
+}
+.hero-slide[data-state='leaving'] {
+  opacity: 1; /* stays under the incoming photo until it has fully faded in */
+  z-index: 1;
+}
+.hero-kb {
+  position: absolute;
+  inset: 0;
+}
+.hero-img {
+  object-position: 68% 50%; /* the dishes sit right of centre in the landscape photos */
+}
+@media (width >= 64rem) {
+  .hero-img {
+    object-position: 50% 50%;
+  }
+}
+/* Scrims: bottom → top on phones (text below the photo), left → right on desktop (text on the left). */
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgb(13 9 7 / 0.72) 0%, rgb(13 9 7 / 0.18) 26%, transparent 40%),
+    linear-gradient(to top, #0d0907 0%, rgb(13 9 7 / 0.94) 14%, rgb(13 9 7 / 0.62) 32%, rgb(13 9 7 / 0.12) 52%, transparent 64%);
+}
+@media (width >= 64rem) {
+  .hero-scrim {
+    background:
+      linear-gradient(to bottom, rgb(13 9 7 / 0.65) 0%, transparent 24%),
+      linear-gradient(to top, rgb(13 9 7 / 0.9) 0%, rgb(13 9 7 / 0.35) 24%, transparent 46%),
+      linear-gradient(to left, rgb(13 9 7 / 0.85) 0%, rgb(13 9 7 / 0.55) 4%, transparent 14%),
+      linear-gradient(to right, rgb(13 9 7 / 0.94) 0%, rgb(13 9 7 / 0.86) 28%, rgb(13 9 7 / 0.6) 42%, rgb(13 9 7 / 0.22) 58%, transparent 74%);
+  }
+}
+[data-hero-veil] {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Slide progress lines (the active one fills up; its animation's end moves the show on). */
+.hero-progress {
+  position: relative;
+  display: block;
+  width: 2.5rem;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgb(251 248 243 / 0.24);
+}
+.hero-progress > span {
+  position: absolute;
+  inset: 0;
+  background: var(--color-gold-400);
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: hero-progress 7.5s linear forwards;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Ken Burns: a slow push-in with a slight pan, in alternating directions. */
+  .hero-slide:is([data-state='active'], [data-state='leaving']) .hero-kb {
+    animation: hero-kb-a 12s cubic-bezier(0.37, 0, 0.63, 1) both;
+  }
+  .hero-slide[data-kb='b']:is([data-state='active'], [data-state='leaving']) .hero-kb {
+    animation-name: hero-kb-b;
+  }
+  /* "Lights up" as the page opens. */
+  [data-hero-veil] {
+    animation: hero-veil 1.7s cubic-bezier(0.33, 1, 0.68, 1) both;
+  }
+  .hero-progress-group {
+    animation: hero-fade 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+/* Off-screen hero (or no motion): everything holds still. */
+[data-hero][data-paused] :is(.hero-kb, .hero-progress > span) {
+  animation-play-state: paused;
+}
+@keyframes hero-kb-a {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.1) translate3d(-1.8%, -1.2%, 0);
+  }
+}
+@keyframes hero-kb-b {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.1) translate3d(1.8%, -0.8%, 0);
+  }
+}
+@keyframes hero-veil {
+  from {
+    opacity: 0.92;
+  }
+}
+@keyframes hero-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+/* Short desktop screens (laptops): tighter rhythm so the whole opening shot fits in one screen. */
+@media (width >= 64rem) and (height <= 51.25rem) {
+  [data-hero] [data-hero-content] {
+    padding-top: 7.5rem;
+    padding-bottom: 2rem;
+  }
+  [data-hero] h1 {
+    margin-top: 1.25rem;
+  }
+  [data-hero] .hero-sub {
+    margin-top: 1.25rem;
+  }
+  [data-hero] .hero-actions {
+    margin-top: 1.75rem;
+  }
+  [data-hero] .hero-info {
+    margin-top: 1.75rem;
+    padding-top: 1.1rem;
+  }
+  [data-hero] .hero-caption {
+    bottom: 2.15rem;
+  }
+}
+/* The eyebrow fits on one line on small phones. */
+@media (width < 30rem) {
+  .hero-eyebrow {
+    letter-spacing: 0.22em;
+    gap: 0.7rem;
+  }
+  .hero-eyebrow::before {
+    width: 1.5rem;
+  }
+}
+/* …including the narrowest ones (320 px). */
+@media (width < 22.5rem) {
+  .hero-eyebrow {
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+  }
+}
+
+/* ─── Marquee band under the hero ─────────────────────────────────────────────────────────────── */
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+}
+.marquee-track {
+  animation: marquee 95s linear infinite;
+}
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+    padding-left: 1.25rem; /* still: starts at the page margin and fades out on the right */
+  }
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(90deg, #000 80%, transparent);
+    mask-image: linear-gradient(90deg, #000 80%, transparent);
+  }
+}
