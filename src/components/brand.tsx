@@ -20,6 +20,7 @@ import {
 import type { CSSProperties } from 'react';
 import { useI18n } from '@/i18n';
 import { MOTION_OK, type Gsap } from '@/lib/motion';
+import { BACKUP_PHOTO_BASE } from '@/lib/menuFallback';
 import { useSite } from '@/lib/queries';
 import { cn } from './ui';
 
@@ -415,7 +416,8 @@ export function DishImage({
       className={cn('h-full w-full object-cover', className)}
     />
   );
-  if (!showLabel || !site?.demoMenu) return img;
+  // Sample-menu and backup-menu photos (content/photos/menu) are illustrations.
+  if (!showLabel || !(site?.demoMenu || imageBase === BACKUP_PHOTO_BASE)) return img;
   return (
     <>
       {img}

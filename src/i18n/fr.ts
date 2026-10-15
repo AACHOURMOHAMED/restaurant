@@ -115,6 +115,12 @@ export const fr = {
     allergens: `Allergies ou intolérances${nb}? Merci de le signaler à notre équipe.`,
     loading: 'Chargement de la carte…',
     error: 'La carte est momentanément indisponible.',
+    offline: {
+      saved: `Impossible de joindre notre carte en ce moment${nb}: voici la dernière version consultée sur cet appareil, qui peut ne pas être à jour.`,
+      backup: `Impossible de joindre notre carte en ce moment${nb}: voici notre carte de secours, qui peut ne pas être à jour (plats et prix).`,
+      sample: `Impossible de joindre notre carte en ce moment. En attendant, voici un menu d’exemple${nb}: ce ne sont pas les plats ni les prix de B&B Park.`,
+      noOrdering: 'La commande en ligne reprendra dès que la carte sera de nouveau disponible. Notre équipe peut prendre votre commande en salle.',
+    },
     retry: 'Réessayer',
     empty: 'La carte sera bientôt disponible en ligne.',
     close: 'Fermer',

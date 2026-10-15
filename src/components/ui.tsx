@@ -299,10 +299,12 @@ export function Notice({
   tone = 'info',
   children,
   className,
+  'data-testid': testId,
 }: {
   tone?: 'info' | 'warn' | 'error' | 'success';
   children: ReactNode;
   className?: string;
+  'data-testid'?: string;
 }) {
   const tones = {
     info: 'border-gold-400/40 bg-gold-200/40 text-ink-800',
@@ -311,7 +313,11 @@ export function Notice({
     success: 'border-olive-500/40 bg-olive-500/10 text-olive-600',
   };
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={cn('rounded-2xl border px-4 py-3 text-sm leading-relaxed', tones[tone], className)}>
+    <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      className={cn('rounded-2xl border px-4 py-3 text-sm leading-relaxed', tones[tone], className)}
+      data-testid={testId}
+    >
       {children}
     </div>
   );
