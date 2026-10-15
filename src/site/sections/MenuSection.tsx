@@ -22,6 +22,8 @@ export function MenuSection() {
   }, [menu.data]);
 
   const categories = menu.data?.categories ?? [];
+  // The live menu could not be loaded: a saved or backup one is shown (see lib/menuFallback).
+  const offline = menu.data?.offline;
   return (
     <section ref={ref} id="menu" className="relative bg-cream-100 py-24 md:py-32" aria-labelledby="menu-title">
       <div className="container-x">
@@ -37,10 +39,19 @@ export function MenuSection() {
           </p>
         </div>
 
-        {site.data?.demoMenu && (
-          <Notice tone="warn" className="mt-8 max-w-3xl">
-            {t.preview.demoMenu}
+        {offline ? (
+          <Notice tone="warn" className="mt-8 max-w-3xl" data-testid="menu-offline">
+            {t.menu.offline[offline]}{' '}
+            <button type="button" className="font-semibold underline underline-offset-4" onClick={() => void menu.refetch()}>
+              {t.menu.retry}
+            </button>
           </Notice>
+        ) : (
+          site.data?.demoMenu && (
+            <Notice tone="warn" className="mt-8 max-w-3xl">
+              {t.preview.demoMenu}
+            </Notice>
+          )
         )}
 
         <div className="mt-10">

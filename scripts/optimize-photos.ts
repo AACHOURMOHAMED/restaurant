@@ -1,7 +1,9 @@
 /**
  * Turns the restaurant's photos in content/photos/ into optimised, responsive
  * images in public/photos/ (AVIF + WebP + JPEG at several widths) and writes a
- * manifest used by the <Photo> component. Run automatically by `npm run dev`
+ * manifest used by the <Photo> component. Dish photos in content/photos/menu/ become
+ * public/photos/menu/<key>-<width>.webp (the same layout as dashboard uploads) for the
+ * backup menu (content/menu.ts). Run automatically by `npm run dev`
  * and `npm run build`; safe to run repeatedly (unchanged photos are skipped).
  */
 import crypto from 'node:crypto';
@@ -13,6 +15,9 @@ const SRC = path.resolve('content/photos');
 const OUT = path.resolve('public/photos');
 const MANIFEST = path.resolve('src/generated/photos.json');
 const WIDTHS = [480, 960, 1600, 2400];
+const MENU_SRC = path.join(SRC, 'menu');
+const MENU_MANIFEST = path.resolve('src/generated/menu-photos.json');
+const MENU_WIDTHS = [480, 960, 1440]; // server/services/images.ts → MENU_IMAGE_WIDTHS
 const EXT = /\.(jpe?g|png|webp|avif|tiff?)$/i;
 
 type Entry = { width: number; height: number; widths: number[]; base: string; placeholder: string; mtime: number };
@@ -61,6 +66,29 @@ async function main() {
 
   fs.writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
   if (files.length === 0) console.log('photos: none in content/photos yet (placeholders will be shown)');
+  await menuPhotos();
+}
+
+/** Dish photos for the backup menu: { "<dish-file-name>": "<key>" }, served from /photos/menu/<key>-<width>.webp. */
+async function menuPhotos() {
+  const out = path.join(OUT, 'menu');
+  fs.mkdirSync(out, { recursive: true });
+  const files = fs.existsSync(MENU_SRC) ? fs.readdirSync(MENU_SRC).filter((f) => EXT.test(f)) : [];
+  const manifest: Record<string, string> = {};
+  for (const file of files) {
+    const input = path.join(MENU_SRC, file);
+    const name = file.replace(EXT, '');
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(input)).digest('hex').slice(0, 10);
+    const key = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${hash}`;
+    manifest[name] = key;
+    if (MENU_WIDTHS.every((w) => fs.existsSync(path.join(out, `${key}-${w}.webp`)))) continue;
+    for (const w of MENU_WIDTHS) {
+      const resized = sharp(input).rotate().resize({ width: w, withoutEnlargement: true });
+      await resized.webp({ quality: 78 }).toFile(path.join(out, `${key}-${w}.webp`));
+    }
+    console.log(`dish photo: ${file}`);
+  }
+  fs.writeFileSync(MENU_MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 main().catch((err: unknown) => {

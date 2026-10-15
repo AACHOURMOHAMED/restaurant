@@ -25,7 +25,7 @@ export function Specials() {
     [menu.data],
   );
   // Sample-menu photos are illustrations (see content/photos/menu), and say so.
-  const demo = site.data?.demoMenu === true;
+  const demo = site.data?.demoMenu === true || menu.data?.offline === 'sample';
 
   useMotion(
     (m) => {

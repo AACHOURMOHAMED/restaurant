@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { PublicMenu, PublicSite } from '@shared/api-types';
 import { openStatus, type OpenStatus } from '@shared/availability';
 import { api } from './api';
+import { fallbackMenu, isOutage, saveMenu, type MenuResult } from './menuFallback';
 
 export const siteQuery = queryOptions({
   queryKey: ['site'],
@@ -13,7 +14,17 @@ export const siteQuery = queryOptions({
 
 export const menuQuery = queryOptions({
   queryKey: ['menu'],
-  queryFn: () => api<PublicMenu>('/api/public/menu'),
+  // During an outage the site still shows a menu, marked `offline` (see menuFallback).
+  queryFn: async (): Promise<MenuResult> => {
+    try {
+      const menu = await api<PublicMenu>('/api/public/menu');
+      saveMenu(menu);
+      return menu;
+    } catch (err) {
+      if (!isOutage(err)) throw err;
+      return fallbackMenu();
+    }
+  },
   staleTime: 60_000,
   retry: 1,
 });

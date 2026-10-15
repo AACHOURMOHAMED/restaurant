@@ -110,6 +110,12 @@ export const en: Dictionary = {
     allergens: 'Allergies or intolerances? Please let our team know.',
     loading: 'Loading the menu…',
     error: 'The menu is temporarily unavailable.',
+    offline: {
+      saved: 'We can’t reach our menu right now: this is the last version viewed on this device, and it may be out of date.',
+      backup: 'We can’t reach our menu right now: this is our backup menu, and dishes or prices may be out of date.',
+      sample: 'We can’t reach our menu right now. Meanwhile, here is a sample menu: these are not B&B Park’s dishes or prices.',
+      noOrdering: 'Online ordering will be back as soon as the menu is. Our team can take your order at the table.',
+    },
     retry: 'Try again',
     empty: 'The menu will be available online soon.',
     close: 'Close',

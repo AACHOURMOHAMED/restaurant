@@ -38,7 +38,9 @@ export default function OrderPage() {
 
   const index = useMemo(() => indexMenu(menu.data?.categories), [menu.data]);
   const priced = useMemo(() => priceCart(cartState, index, flagged), [cartState, index, flagged]);
-  const orderingEnabled = site.data?.ordering.enabled ?? false;
+  // Never from a saved or backup menu (shown during an outage): its dishes may not match the live menu.
+  const offline = menu.data?.offline;
+  const orderingEnabled = (site.data?.ordering.enabled ?? false) && !offline;
 
   const addToCart = (itemId: number, name: string, optionIds: number[], quantity: number, note: string) => {
     cart.add(itemId, optionIds, quantity, note);
@@ -160,11 +162,24 @@ export default function OrderPage() {
           </Notice>
         ) : (
           <>
-            {site.data && (!orderingEnabled || site.data.demoMenu) && (
-              <div className="mb-6 space-y-3">
-                {!orderingEnabled && <Notice tone="warn">{t.order.orderingDisabled}</Notice>}
-                {site.data.demoMenu && <Notice tone="warn">{t.preview.demoMenu}</Notice>}
+            {offline ? (
+              <div className="mb-6 space-y-3" data-testid="menu-offline">
+                <Notice tone="warn">
+                  {t.menu.offline[offline]}{' '}
+                  <button type="button" className="font-semibold underline" onClick={() => void menu.refetch()}>
+                    {t.menu.retry}
+                  </button>
+                </Notice>
+                <Notice tone="info">{t.menu.offline.noOrdering}</Notice>
               </div>
+            ) : (
+              site.data &&
+              (!orderingEnabled || site.data.demoMenu) && (
+                <div className="mb-6 space-y-3">
+                  {!orderingEnabled && <Notice tone="warn">{t.order.orderingDisabled}</Notice>}
+                  {site.data.demoMenu && <Notice tone="warn">{t.preview.demoMenu}</Notice>}
+                </div>
+              )
             )}
             {categories.length === 0 ? (
               <p className="py-16 text-center text-taupe-600">{t.menu.empty}</p>
